@@ -148,6 +148,7 @@ def main(dataset_name, net_name, xp_path, data_path, load_config=None, load_mode
         cfg.save_config(export_json=model_path + f'/config_physical.json')
 
 if __name__ == '__main__':
+    "Test git"
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
     # Set training to be deterministic
