@@ -1,29 +1,93 @@
-# from data_provider.data_factory import data_provider
-from base.exp_basic import Exp_Basic
-from baselines.util_TimesNet import EarlyStopping, adjust_learning_rate, adjustment
-from sklearn.metrics import precision_recall_fscore_support
-from sklearn.metrics import accuracy_score
-import torch.multiprocessing
-from datasets.main import load_dataset
-from sklearn.metrics import roc_auc_score, roc_curve
+"""
+Entry point for the TimesNet unsupervised anomaly detection baseline.
 
-torch.multiprocessing.set_sharing_strategy('file_system')
+TimesNet: Temporal 2D-Variation Modeling for General Time Series Analysis
+(ICLR 2023, Wu et al.)  https://openreview.net/pdf?id=ju_Uqw384Oq
+
+TimesNet is unsupervised: it reconstructs the input via MSE and uses the
+reconstruction error as the anomaly score.  Labels are only used at evaluation.
+
+Usage examples:
+  python src/main_TimesNet.py --dataset ALFA
+  python src/main_TimesNet.py --dataset Pegasus --train_epochs 20
+  python src/main_TimesNet.py --dataset ALFA --save_path ./saved_model/timesnet_alfa.pt
+"""
+
+import argparse
+import os
+import sys
+import time
+import warnings
+
+import numpy as np
 import torch
 import torch.nn as nn
 from torch import optim
-import os
-import time
-import warnings
-import numpy as np
-import wandb
 
 warnings.filterwarnings('ignore')
+
+sys.path.insert(0, os.path.dirname(__file__))
+
+from base.exp_basic import Exp_Basic
+from baselines.util_TimesNet import EarlyStopping, adjust_learning_rate, adjustment
+from datasets.main import load_dataset
+from sklearn.metrics import accuracy_score, precision_recall_fscore_support, roc_auc_score
+
+
+DATASET_CONFIGS = {
+    'Pegasus': {
+        'known_outlier_classes': [1, 3, 4, 6],
+        'n_known_outlier_classes': 4,
+        'ratio_known_normal': 0.0,
+        'ratio_known_outlier': 0.0,
+        'ratio_pollution': 0.1,
+        'enc_in': 44,
+        'c_out': 44,
+        'seq_len': 20,
+    },
+    'ALFA': {
+        'known_outlier_classes': [1, 2, 3, 4],
+        'n_known_outlier_classes': 4,
+        'ratio_known_normal': 0.0,
+        'ratio_known_outlier': 0.0,
+        'ratio_pollution': 0.1,
+        'enc_in': 35,
+        'c_out': 35,
+        'seq_len': 25,
+    },
+}
+
+
+def parse_args():
+    p = argparse.ArgumentParser(description="TimesNet unsupervised baseline for PIAD_Ext")
+    p.add_argument("--dataset", default="ALFA", choices=list(DATASET_CONFIGS))
+    p.add_argument("--data_path", default="./data")
+    p.add_argument("--seed", type=int, default=4)
+    # Training
+    p.add_argument("--train_epochs", type=int, default=20)
+    p.add_argument("--batch_size", type=int, default=128)
+    p.add_argument("--learning_rate", type=float, default=1e-4)
+    p.add_argument("--lradj", default="type2")
+    p.add_argument("--ratio_pollution", type=float, default=None,
+                   help="Override dataset-default anomaly ratio for threshold")
+    # Model architecture
+    p.add_argument("--d_model", type=int, default=128)
+    p.add_argument("--d_ff", type=int, default=128)
+    p.add_argument("--top_k", type=int, default=3)
+    p.add_argument("--num_kernels", type=int, default=3)
+    p.add_argument("--e_layers", type=int, default=3)
+    p.add_argument("--embed", default="fixed")
+    p.add_argument("--freq", default="h")
+    p.add_argument("--dropout", type=float, default=0.0)
+    # Output
+    p.add_argument("--save_path", default="./saved_model/timesnet_checkpoint.pt")
+    p.add_argument("--no_save", action="store_true")
+    return p.parse_args()
 
 
 class Exp_Anomaly_Detection(Exp_Basic):
     def __init__(self, args):
-        # arg should be passed as a dict
-        super(Exp_Anomaly_Detection, self).__init__(args)
+        super().__init__(args)
         self.args = args
         self.device = torch.device(
             'cuda:{}'.format(self.args['gpu']) if self.args['use_gpu'] else 'cpu')
@@ -31,257 +95,215 @@ class Exp_Anomaly_Detection(Exp_Basic):
         self.model_optim = self._select_optimizer()
         self.criterion = self._select_criterion()
 
-
     def _build_model(self):
         model = self.model_dict['TimesNet'].Model(self.args).float()
-
         if self.args['use_multi_gpu'] and self.args['use_gpu']:
             model = nn.DataParallel(model, device_ids=self.args['device_ids'])
         return model
 
-    def get_data(self, dataset_name):
-        # Load my own data loader here.
-        # dataset_name = 'spoofing_physical'
-        datasets = load_dataset(dataset_name, data_path, normal_class, known_outlier_class, n_known_outlier_classes,
-                           self.args['ratio_known_normal'], self.args['ratio_known_outlier'], self.args['ratio_pollution'],
-                           random_state=np.random.RandomState(seed))
-        return datasets.loaders(batch_size=self.args['batch_size'])
+    def get_data(self, dataset_name, data_path, ratio_pollution=None):
+        dcfg = DATASET_CONFIGS[dataset_name]
+        dataset = load_dataset(
+            dataset_name=dataset_name,
+            data_path=data_path,
+            normal_class=0,
+            known_outlier_class=tuple(dcfg['known_outlier_classes']),
+            n_known_outlier_classes=dcfg['n_known_outlier_classes'],
+            ratio_known_normal=dcfg['ratio_known_normal'],
+            ratio_known_outlier=dcfg['ratio_known_outlier'],
+            ratio_pollution=ratio_pollution or dcfg['ratio_pollution'],
+            random_state=np.random.RandomState(self.args['seed']),
+            subclasses=True,
+        )
+        return dataset.loaders(batch_size=self.args['batch_size'])
 
     def _select_optimizer(self):
-        model_optim = optim.Adam(self.model.parameters(), lr=self.args['learning_rate'])
-        return model_optim
+        return optim.Adam(self.model.parameters(), lr=self.args['learning_rate'])
 
     def _select_criterion(self):
-        criterion = nn.MSELoss()
-        return criterion
+        return nn.MSELoss()
+
+    def _reshape(self, sample):
+        """Reshape flat (B, seq_len*enc_in) → (B, seq_len, enc_in)."""
+        return sample.view(sample.size(0), self.args['seq_len'], self.args['enc_in'])
 
     def vali(self, vali_loader, criterion):
         total_loss = []
         self.model.eval()
         with torch.no_grad():
-            for i, (batch_x, _, _) in enumerate(vali_loader):
-                batch_x = batch_x.float().to(self.device)
-
-                outputs = self.model(batch_x)
-
+            for batch in vali_loader:
+                sample = batch[0].float().to(self.device)
+                sample = self._reshape(sample)
+                outputs = self.model(sample)
                 f_dim = -1 if self.args['features'] == 'MS' else 0
                 outputs = outputs[:, :, f_dim:]
-                pred = outputs.detach().cpu()
-                true = batch_x.detach().cpu()
-
-                loss = criterion(pred, true)
-                total_loss.append(loss)
-        total_loss = np.average(total_loss)
+                loss = criterion(outputs.detach().cpu(), sample.detach().cpu())
+                total_loss.append(loss.item())
         self.model.train()
-        return total_loss
+        return np.average(total_loss)
 
-    def train(self):
-        
-        if not os.path.exists(model_path):
-            os.makedirs(model_path)
-
-        time_now = time.time()
+    def train(self, train_loader, vali_loader, test_loader, model_path):
+        os.makedirs(model_path, exist_ok=True)
 
         train_steps = len(train_loader)
         early_stopping = EarlyStopping(patience=30, verbose=True)
-
         model_optim = self._select_optimizer()
         criterion = self._select_criterion()
 
+        time_now = time.time()
         for epoch in range(self.args['train_epochs']):
             iter_count = 0
             train_loss = []
-
             self.model.train()
             epoch_time = time.time()
-            for i, (batch_x, batch_y, _) in enumerate(train_loader):
+
+            for i, batch in enumerate(train_loader):
                 iter_count += 1
                 model_optim.zero_grad()
-
-                batch_x = batch_x.float().to(self.device)
-
-                outputs = self.model(batch_x)
-
+                sample = batch[0].float().to(self.device)
+                sample = self._reshape(sample)
+                outputs = self.model(sample)
                 f_dim = -1 if self.args['features'] == 'MS' else 0
                 outputs = outputs[:, :, f_dim:]
-                loss = criterion(outputs, batch_x)
+                loss = criterion(outputs, sample)
                 train_loss.append(loss.item())
 
                 if (i + 1) % 100 == 0:
-                    print("\titers: {0}, epoch: {1} | loss: {2:.7f}".format(i + 1, epoch + 1, loss.item()))
                     speed = (time.time() - time_now) / iter_count
                     left_time = speed * ((self.args['train_epochs'] - epoch) * train_steps - i)
-                    print('\tspeed: {:.4f}s/iter; left time: {:.4f}s'.format(speed, left_time))
+                    print(f"\titers: {i+1}, epoch: {epoch+1} | loss: {loss.item():.7f}"
+                          f"  speed: {speed:.4f}s/iter; left: {left_time:.1f}s")
                     iter_count = 0
                     time_now = time.time()
 
                 loss.backward()
                 model_optim.step()
 
-            print("Epoch: {} cost time: {}".format(epoch + 1, time.time() - epoch_time))
             train_loss = np.average(train_loss)
             vali_loss = self.vali(vali_loader, criterion)
             test_loss = self.vali(test_loader, criterion)
+            print(f"Epoch {epoch+1} | cost: {time.time()-epoch_time:.1f}s "
+                  f"| Train: {train_loss:.7f}  Vali: {vali_loss:.7f}  Test: {test_loss:.7f}")
 
-            print("Epoch: {0}, Steps: {1} | Train Loss: {2:.7f} Vali Loss: {3:.7f} Test Loss: {4:.7f}".format(
-                epoch + 1, train_steps, train_loss, vali_loss, test_loss))
             early_stopping(vali_loss, self.model, model_path)
             if early_stopping.early_stop:
                 print("Early stopping")
                 break
             adjust_learning_rate(model_optim, epoch + 1, self.args)
 
-        best_model_path = model_path + '/' + 'checkpoint.pth'
+        best_model_path = os.path.join(model_path, 'checkpoint.pth')
         self.model.load_state_dict(torch.load(best_model_path))
-
         return self.model
 
-    def test(self, test=0):
-        # test_data, test_loader = self._get_data(flag='test')
-        # train_data, train_loader = self._get_data(flag='train')
-        if test:
-            print('loading model')
-            self.model.load_state_dict(torch.load(os.path.join(model_path, 'checkpoint.pth')))
-
-        attens_energy = []
-        
-        if not os.path.exists(log_path):
-            os.makedirs(log_path)
-
-        self.model.eval()
+    def test(self, train_loader, test_loader, ratio_pollution):
         self.anomaly_criterion = nn.MSELoss(reduce=False)
 
-        # (1) stastic on the train set
+        # (1) collect train reconstruction errors to set threshold
+        self.model.eval()
+        attens_energy = []
         with torch.no_grad():
-            for i, (batch_x, batch_y, _) in enumerate(train_loader):
-                batch_x = batch_x.float().to(self.device)
-                # reconstruction
-                outputs = self.model(batch_x)
-                # criterion
-                score = torch.mean(self.anomaly_criterion(batch_x, outputs), dim=-1) # suspecious
-                score = score.detach().cpu().numpy()
-                attens_energy.append(score)
+            for batch in train_loader:
+                sample = batch[0].float().to(self.device)
+                sample = self._reshape(sample)
+                outputs = self.model(sample)
+                score = torch.mean(self.anomaly_criterion(sample, outputs), dim=-1)
+                attens_energy.append(score.detach().cpu().numpy())
+        train_energy = np.concatenate(attens_energy).reshape(-1)
 
-        attens_energy = np.concatenate(attens_energy, axis=0).reshape(-1)
-        train_energy = np.array(attens_energy)
-
-        # (2) find the threshold
+        # (2) collect test reconstruction errors + labels
         attens_energy = []
         test_labels = []
-        for i, (batch_x, batch_y, _) in enumerate(test_loader):
-            batch_x = batch_x.float().to(self.device)
-            # reconstruction
-            outputs = self.model(batch_x)
-            # criterion
-            score = torch.mean(self.anomaly_criterion(batch_x, outputs), dim=-1)
-            score = score.detach().cpu().numpy()
-            attens_energy.append(score)
-            test_labels.append(batch_y)
+        with torch.no_grad():
+            for batch in test_loader:
+                sample = batch[0].float().to(self.device)
+                target = batch[1]   # (B, n_ac) multi-hot
+                sample = self._reshape(sample)
+                outputs = self.model(sample)
+                score = torch.mean(self.anomaly_criterion(sample, outputs), dim=-1)
+                attens_energy.append(score.detach().cpu().numpy())
+                test_labels.append(target.numpy())
 
-        attens_energy = np.concatenate(attens_energy, axis=0).reshape(-1)
-        test_energy = np.array(attens_energy)
-        combined_energy = np.concatenate([train_energy, test_energy], axis=0)
-        threshold = np.percentile(combined_energy, 100 - self.args['ratio_pollution']*100)
-        print("Threshold :", threshold)
+        test_energy = np.concatenate(attens_energy).reshape(-1)
+        combined_energy = np.concatenate([train_energy, test_energy])
+        threshold = np.percentile(combined_energy, 100 - ratio_pollution * 100)
+        print(f"Threshold: {threshold:.6f}")
 
-        # (3) evaluation on the test set
+        # (3) evaluate
         pred = (test_energy > threshold).astype(int)
-        test_labels = np.concatenate(test_labels, axis=0).reshape(-1)
-        test_labels = np.array(test_labels)
-        gt = test_labels.astype(int)
-        # pred = pred.reshape(-1, 100)
-        # pred = (np.sum(pred, axis=1) > 0).astype(int)
-        # gt = gt.reshape(-1, 100)
-        # gt = (np.sum(gt, axis=1) > 0).astype(int)
+        # Binarise multi-hot labels: any anomaly class present = 1
+        test_labels_np = np.concatenate(test_labels, axis=0)  # (N, n_ac)
+        if test_labels_np.ndim == 2:
+            gt = (test_labels_np.sum(axis=-1) > 0).astype(int)
+        else:
+            gt = test_labels_np.astype(int)
 
-        print("pred:   ", pred.shape)
-        print("gt:     ", gt.shape)
-
-        # (4) detection adjustment
         gt, pred = adjustment(gt, pred)
-
-        pred = np.array(pred)
-        gt = np.array(gt)
-        print("pred: ", pred.shape)
-        print("gt:   ", gt.shape)
+        pred, gt = np.array(pred), np.array(gt)
 
         accuracy = accuracy_score(gt, pred)
-        precision, recall, f_score, support = precision_recall_fscore_support(gt, pred, average='binary')
-        roc_auc = roc_auc_score(gt, test_energy - threshold)
-        wandb.log({
-            'precision': precision,
-            'roc_auc': roc_auc,
-            'accuracy': accuracy,
-            'f_score': f_score,
-            'recall': recall
-        })
-        print("Accuracy : {:0.4f}, Precision : {:0.4f}, Recall : {:0.4f}, F-score : {:0.4f}, ROC AUC : {:0.4f}".format(
-            accuracy, precision,
-            recall, f_score, roc_auc))
+        precision, recall, f_score, _ = precision_recall_fscore_support(
+            gt, pred, average='binary', zero_division=0)
+        try:
+            roc_auc = roc_auc_score(gt, test_energy - threshold)
+        except ValueError:
+            roc_auc = float('nan')
 
-        f = open("result_anomaly_detection.txt", 'a')
-        # f.write(setting + "  \n")
-        f.write("Accuracy : {:0.4f}, Precision : {:0.4f}, Recall : {:0.4f}, F-score : {:0.4f}, ROC AUC : {:0.4f}".format(
-            accuracy, precision,
-            recall, f_score, roc_auc))
-        f.write('\n')
-        f.write('\n')
-        f.close()
-        return threshold
-    
-if __name__=='__main__':
-    seed = 4
-    dataset_name = 'spoofing_unsupervised'  # Change to 'spoofing_physical' or 'spoofing' as needed
-    data_path = './data'
-    # ratio_known_outlier = 0.005 
-    # ratio_known_normal = 0
-    # ratio_pollution = 0.2 # Replace with anomaly ratio in args
-    # batch_size = 128
-    normal_class = 0
-    known_outlier_class = 1
-    n_known_outlier_classes = 1
-    model_path = './saved_model/TimesNet'
-    log_path = './log/TimesNet'
+        print(f"Accuracy: {accuracy:.4f}  Precision: {precision:.4f}  "
+              f"Recall: {recall:.4f}  F-score: {f_score:.4f}  ROC AUC: {roc_auc:.4f}")
+        return threshold, test_energy
 
-    args = {
-        # entries from args
-        'use_gpu': True,
+
+def main():
+    args = parse_args()
+    torch.manual_seed(args.seed)
+    np.random.seed(args.seed)
+
+    dcfg = DATASET_CONFIGS[args.dataset]
+    ratio_pollution = args.ratio_pollution or dcfg['ratio_pollution']
+
+    model_args = {
+        'use_gpu': torch.cuda.is_available(),
         'gpu_type': 'cuda',
         'gpu': 0,
         'use_multi_gpu': False,
-        # 'devices': [0],
-        'train_epochs': 20,
-        'learning_rate': 1e-4,
-        'lradj': 'type2',  # 'type1', 'type2', 'type3', 'cosine'
+        'seed': args.seed,
+        'train_epochs': args.train_epochs,
+        'learning_rate': args.learning_rate,
+        'lradj': args.lradj,
         'features': 'M',
-        'ratio_pollution': 0.05, # Change later to the desired anomaly ratio
-        'ratio_known_normal': 0,
-        'ratio_known_outlier': 0,  # Known outlier ratio
-        # entries from configs
-        'seq_len': 100,
+        'ratio_pollution': ratio_pollution,
+        'seq_len': dcfg['seq_len'],
         'pred_len': 0,
-        'd_model': 128,
-        'd_ff': 128,
-        'top_k': 3,
-        'num_kernels': 3,
-        'e_layers': 3,
-        'enc_in': 12,
-        'embed': 'fixed',
-        'freq': 'h',
-        'dropout': 0.0,
-        'c_out': 12,
-        'batch_size': 128
+        'd_model': args.d_model,
+        'd_ff': args.d_ff,
+        'top_k': args.top_k,
+        'num_kernels': args.num_kernels,
+        'e_layers': args.e_layers,
+        'enc_in': dcfg['enc_in'],
+        'c_out': dcfg['c_out'],
+        'embed': args.embed,
+        'freq': args.freq,
+        'dropout': args.dropout,
+        'batch_size': args.batch_size,
     }
-    wandb.init(
-        project='PIAD',
-        name='Physical_sweep_TimesNet',
-    )
-    # args['ratio_pollution'] = wandb.config.ratio_pollution
-    exp = Exp_Anomaly_Detection(args)
-    train_loader, vali_loader, test_loader = exp.get_data(dataset_name)
-    exp.train()
-    threshold = exp.test(test=1)
-    net_dict = exp.model.state_dict()
-    torch.save({'net_dict': net_dict,
-                'threshold': threshold}, model_path + '/model.pth')
 
+    exp = Exp_Anomaly_Detection(model_args)
+    train_loader, vali_loader, test_loader = exp.get_data(
+        args.dataset, args.data_path, ratio_pollution)
+
+    tmp_model_path = './saved_model/TimesNet_tmp'
+    exp.train(train_loader, vali_loader, test_loader, tmp_model_path)
+    threshold, test_energy = exp.test(train_loader, test_loader, ratio_pollution)
+
+    if not args.no_save:
+        os.makedirs(os.path.dirname(os.path.abspath(args.save_path)), exist_ok=True)
+        torch.save({
+            'net_dict': exp.model.state_dict(),
+            'threshold': threshold,
+            'args': model_args,
+        }, args.save_path)
+        print(f"Checkpoint saved to {args.save_path}")
+
+
+if __name__ == '__main__':
+    main()

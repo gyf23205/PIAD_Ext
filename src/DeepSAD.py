@@ -111,13 +111,17 @@ class DeepSAD(object):
         self.trainer.test(dataset, self.net)
 
         # Get results
-        self.results['test_auc'] = self.trainer.test_auc
-        self.results['test_time'] = self.trainer.test_time
-        self.results['test_scores'] = self.trainer.test_scores
-        self.results['test_f1_macro'] = self.trainer.test_f1_macro
-        self.results['test_f1_weighted'] = self.trainer.test_f1_weighted
-        self.results['test_acc'] = self.trainer.test_acc
-        self.results['test_recall'] = self.trainer.test_recall
+        self.results['test_auc']              = self.trainer.test_auc
+        self.results['test_time']             = self.trainer.test_time
+        self.results['test_scores']           = self.trainer.test_scores
+        self.results['test_f1_macro_mh']      = self.trainer.test_f1_macro_mh
+        self.results['test_f1_micro_mh']      = self.trainer.test_f1_micro_mh
+        self.results['test_hamming_acc']      = self.trainer.test_hamming_acc
+        self.results['test_subset_acc']       = self.trainer.test_subset_acc
+        self.results['test_f1_binary']        = self.trainer.test_f1_binary
+        self.results['test_precision_binary'] = self.trainer.test_precision_binary
+        self.results['test_recall_binary']    = self.trainer.test_recall_binary
+        self.results['test_acc_binary']       = self.trainer.test_acc_binary
         wandb.log(self.results)
 
     def pretrain(self, dataset: BaseADDataset, optimizer_name: str = 'adam', lr: float = 0.001, n_epochs: int = 100,
@@ -173,24 +177,30 @@ class DeepSAD(object):
 
     def train_physical(self, dataset: BaseADDataset, n_outlier_classes: int, known_outlier_classes, coeff: dict, optimizer_name: str = 'adam', lr: float = 0.001, n_epochs: int = 100,
                 lr_milestones: tuple = (), batch_size: int = 128, weight_decay: float = 1e-6, device: str = 'cuda',
-                n_jobs_dataloader: int = 0, tau=0.1, model_path=None, save=False):
+                n_jobs_dataloader: int = 0, tau=0.1, model_path=None, save=False,
+                aug_mode: str = 'gaussian', nngmix_cfg: dict | None = None):
         """Train with system dynamics"""
 
         # Set autoencoder network
         self.net = build_network_physical(self.net_name)
 
+        # Derive the full ordered outlier_classes from the dataset
+        outlier_classes = dataset.outlier_classes
 
         # Train
         self.optimizer_name = optimizer_name
-        self.trainer = DeepSADTrainerPhysical(n_outlier_classes, known_outlier_classes, coeff, optimizer_name, lr=lr, n_epochs=n_epochs, lr_milestones=lr_milestones,
+        self.trainer = DeepSADTrainerPhysical(n_outlier_classes, known_outlier_classes, outlier_classes,
+                                    coeff, optimizer_name, lr=lr, n_epochs=n_epochs, lr_milestones=lr_milestones,
                                     batch_size=batch_size, weight_decay=weight_decay, device=device,
-                                    n_jobs_dataloader=n_jobs_dataloader, tau=tau)
+                                    n_jobs_dataloader=n_jobs_dataloader, tau=tau,
+                                    aug_mode=aug_mode, nngmix_cfg=nngmix_cfg)
         self.net, best_auc = self.trainer.train(dataset, self.net, model_path, save)
 
         # Get train results
         self.results['train_time'] = self.trainer.train_time
-        self.centroids = self.trainer.centroids
-        self.roc_curve = self.trainer.roc_curve
+        self.centroids            = self.trainer.centroids
+        self.roc_curve            = self.trainer.roc_curve
+        self.per_class_thresholds = self.trainer.per_class_thresholds
 
         self.net_wo_pred = self.create_from_physically_informed()
         wandb.log({'best_auc': best_auc})
@@ -234,16 +244,22 @@ class DeepSAD(object):
 
         torch.save({'centroids': self.centroids,
                     'roc': self.roc_curve,
+                    'per_class_thresholds': getattr(self, 'per_class_thresholds', None),
                     'net_dict': net_dict,
                     'net_wo_pred_dict': net_wo_pred_dict}, export_model)
 
     def load_model(self, model_path, load_ae=False, map_location='cpu'):
         """Load Deep SAD model from model_path."""
 
-        model_dict = torch.load(model_path, map_location=map_location)
+        model_dict = torch.load(model_path, map_location=map_location, weights_only=False)
 
-        self.c = model_dict['c']
+        if 'centroids' in model_dict:   # physical model checkpoint
+            self.centroids = model_dict['centroids']
+        else:                            # standard model checkpoint
+            self.c = model_dict['c']
+
         self.roc_curve = model_dict['roc']
+        self.per_class_thresholds = model_dict.get('per_class_thresholds', None)
         self.net.load_state_dict(model_dict['net_dict'])
 
         # load autoencoder parameters if specified

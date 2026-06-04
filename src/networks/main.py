@@ -20,7 +20,7 @@ def build_network(net_name, ae_net=None):
                             'arrhythmia_DGM_M2', 'cardio_DGM_M2', 'satellite_DGM_M2', 'satimage-2_DGM_M2',
                             'shuttle_DGM_M2', 'thyroid_DGM_M2',
                             'transformer','lstm','spoof_mlp',
-                            'spoof_mlp_res', 'spoofing_mlp_state_only', 'mlp_alfa')
+                            'spoof_mlp_res', 'spoofing_mlp_state_only', 'mlp_alfa', "mlp_pegasus")
     assert net_name in implemented_networks
 
     net = None
@@ -105,6 +105,9 @@ def build_network(net_name, ae_net=None):
 
     if net_name == 'mlp_alfa':
         net = MLP(x_dim=25*35, h_dims=[setting.hd1, setting.hd2], rep_dim=setting.rep, bias=False)
+
+    if net_name == 'mlp_pegasus':
+        net = MLP(x_dim=20*44, h_dims=[setting.hd1, setting.hd2], rep_dim=setting.rep, bias=False)
     return net
 
 
@@ -169,8 +172,39 @@ def build_autoencoder(net_name):
 
     return ae_net
 
+def build_network_cats(net_name):
+    """Build a CATSModel for use as the CATS baseline backbone.
+
+    Supported names:
+      cats_ts2vec_pegasus, cats_mlp_pegasus
+      cats_ts2vec_alfa,    cats_mlp_alfa
+    """
+    from baselines.cats.cats_model import CATSModel
+
+    implemented = ('cats_ts2vec_pegasus', 'cats_mlp_pegasus',
+                   'cats_ts2vec_alfa',    'cats_mlp_alfa')
+    assert net_name in implemented, f"Unknown CATS net_name '{net_name}'"
+
+    if net_name == 'cats_ts2vec_pegasus':
+        return CATSModel(input_size=44, win_size=20,
+                         output_size=setting.rep, proj_size=setting.rep // 2,
+                         encoder_type='ts2vec')
+    if net_name == 'cats_mlp_pegasus':
+        return CATSModel(input_size=44, win_size=20,
+                         output_size=setting.rep, proj_size=setting.rep // 2,
+                         encoder_type='mlp')
+    if net_name == 'cats_ts2vec_alfa':
+        return CATSModel(input_size=35, win_size=25,
+                         output_size=setting.rep, proj_size=setting.rep // 2,
+                         encoder_type='ts2vec')
+    if net_name == 'cats_mlp_alfa':
+        return CATSModel(input_size=35, win_size=25,
+                         output_size=setting.rep, proj_size=setting.rep // 2,
+                         encoder_type='mlp')
+
+
 def build_network_physical(net_name):
-    implemented_networks = ('spoof_mlp', 'spoof_mlp_res', 'spoofing_mlp_state_only', 'mlp_alfa')
+    implemented_networks = ('spoof_mlp', 'spoof_mlp_res', 'spoofing_mlp_state_only', 'mlp_alfa', "mlp_pegasus")
     print(net_name)
     assert net_name in implemented_networks
 
@@ -187,6 +221,9 @@ def build_network_physical(net_name):
 
     elif net_name == 'mlp_alfa':
         net_physical = MLP_Physical(x_dim=25*35, h_dims=[setting.hd1, setting.hd2], out_dim=35, rep_dim=setting.rep, bias=False)
+
+    elif net_name == "mlp_pegasus":
+        net_physical = MLP_Physical(x_dim=20*44, h_dims=[setting.hd1, setting.hd2], rep_dim=setting.rep, out_dim=44, bias=False)
 
     else:
         pass

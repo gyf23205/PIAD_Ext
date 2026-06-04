@@ -1,7 +1,6 @@
 from torch.utils.data import DataLoader, Subset
 from base.base_dataset import BaseADDataset
 from base.spoofing_dataset_next import MySpoofingPhysical
-from base.spoofing_dataset import MySpoofing
 from .preprocessing import create_semisupervised_setting
 import torch
 import os
@@ -28,6 +27,7 @@ class SpoofingMultiAnomalyPhysical(BaseADDataset):
         else:
             self.known_outlier_classes = self.outlier_classes[:n_known_outlier_classes]
         self.unknown_outlier_classes = tuple(set(self.outlier_classes) - set(self.known_outlier_classes))
+        self.n_anomaly_classes = len(self.outlier_classes)
         # Get logger
         logger = logging.getLogger()
 
@@ -45,55 +45,73 @@ class SpoofingMultiAnomalyPhysical(BaseADDataset):
         signals = np.concatenate((signals1, signals2), axis=0)
         signals_next = np.concatenate((signals_next1, signals_next2), axis=0)
         flags = np.concatenate((flags1, flags2), axis=0)
-        idx_norm = flags==0
+
+        # Convert scalar flags → 2-D multi-hot: (n_samples, n_anomaly_classes)
+        n_ac = self.n_anomaly_classes
+        flags_mh = np.zeros((len(flags), n_ac), dtype=np.float32)
+        for col, cls in enumerate(self.outlier_classes):
+            flags_mh[flags == cls, col] = 1.0
+
+        idx_norm = flags == 0
         idx_out = np.isin(flags, self.outlier_classes)
 
-         # The model only learn the dynamics of the system during training
-        X_train_norm, X_test_norm, y_train_norm, y_test_norm, next_train_norm, next_test_norm = train_test_split(signals[idx_norm], flags[idx_norm], signals_next[idx_norm],
-                                                                        test_size=test_ratio, random_state=random_state)
-                                                                                
-        X_train_out, X_test_out, y_train_out, y_test_out, next_train_out, next_test_out = train_test_split(signals[idx_out], flags[idx_out], signals_next[idx_out],
-                                                                            test_size=test_ratio, random_state=random_state)
+        # Split normal samples
+        (X_train_norm, X_test_norm,
+         fmh_train_norm, fmh_test_norm,
+         next_train_norm, next_test_norm) = train_test_split(
+            signals[idx_norm], flags_mh[idx_norm], signals_next[idx_norm],
+            test_size=test_ratio, random_state=random_state)
 
-        X_train = np.concatenate([X_train_norm, X_train_out])
-        X_test = np.concatenate([X_test_norm, X_test_out])
-        y_train = np.concatenate([y_train_norm, y_train_out])
-        y_test = np.concatenate((y_test_norm, y_test_out))
+        # Split outlier samples
+        (X_train_out, X_test_out,
+         fmh_train_out, fmh_test_out,
+         next_train_out, next_test_out) = train_test_split(
+            signals[idx_out], flags_mh[idx_out], signals_next[idx_out],
+            test_size=test_ratio, random_state=random_state)
+
+        X_train    = np.concatenate([X_train_norm, X_train_out])
+        X_test     = np.concatenate([X_test_norm,  X_test_out])
+        y_train    = np.concatenate([fmh_train_norm, fmh_train_out])   # multi-hot
+        y_test     = np.concatenate([fmh_test_norm,  fmh_test_out])    # multi-hot
         next_train = np.concatenate([next_train_norm, next_train_out])
-        next_test = np.concatenate((next_test_norm, next_test_out))
-        logger.info(f'n sample in train: Normal: {len(y_train_norm)}, out1: {np.sum(y_train_out==1)}, out2: {np.sum(y_train_out==2)}')
-        logger.info(f'n sample in test: Normal: {len(y_test_norm)}, out1: {np.sum(y_test_out==1)}, out2: {np.sum(y_test_out==2)}')
+        next_test  = np.concatenate([next_test_norm,  next_test_out])
+        logger.info(f'n sample in train: Normal: {len(fmh_train_norm)}, '
+                    f'anomaly columns sum: {fmh_train_out.sum(axis=0).tolist()}')
+        logger.info(f'n sample in test:  Normal: {len(fmh_test_norm)}, '
+                    f'anomaly columns sum: {fmh_test_out.sum(axis=0).tolist()}')
+
         # Construct validation set
         val_ratio = 0.5
         idx_val = np.random.choice(len(y_test), size=int(val_ratio*len(y_test)), replace=False)
-        mask = np.ones(len(y_test),dtype=bool)
-        mask[[idx_val]] = False
-        X_val = X_test[~mask]
-        y_val = y_test[~mask]
-        
+        mask = np.ones(len(y_test), dtype=bool)
+        mask[idx_val] = False
+        X_val   = X_test[~mask]
+        y_val   = y_test[~mask]
+        X_test  = X_test[mask]
+        y_test  = y_test[mask]
 
-        X_test = X_test[mask]
-        y_test = y_test[mask]
-
-        next_val = next_test[~mask]
+        next_val  = next_test[~mask]
         next_test = next_test[mask]
 
         # Get training set
         train_set = MySpoofingPhysical(X_train, y_train, next_train)
 
-        # Creat semi-supervised setting
-        idx, _, semi_targets = create_semisupervised_setting(train_set.targets.cpu().data.numpy(), self.normal_classes,
-                                                        self.unknown_outlier_classes, self.known_outlier_classes,
-                                                        ratio_known_normal, ratio_known_outlier, ratio_pollution)
+        # Create semi-supervised setting
+        idx, _, semi_targets = create_semisupervised_setting(
+            train_set.targets.cpu().numpy(),
+            self.known_outlier_classes,
+            self.outlier_classes,
+            ratio_known_normal, ratio_known_outlier, ratio_pollution
+        )
         train_set.semi_targets[idx] = torch.tensor(semi_targets)
 
         self.X_train, self.y_train, self.semi_y, self.X_test, self.y_test, self.X_val, self.y_val = X_train, y_train, np.array(semi_targets), X_test, y_test, X_val, y_val
-        # Subset train_+set to semi_supervised setup
+        # Subset train_set to semi-supervised setup
         self.train_set = Subset(train_set, idx)
-        self.val_set = MySpoofingPhysical(X_val, y_val, next_val)
+        self.val_set   = MySpoofingPhysical(X_val, y_val, next_val)
 
-        #Get test set
-        self.test_set = MySpoofingPhysical(X_test, y_test, next_test)
+        # Get test set
+        self.test_set  = MySpoofingPhysical(X_test, y_test, next_test)
 
     def loaders(self, batch_size: int, shuffle_train=True, shuffle_test=False, num_workers: int = 0) -> tuple[DataLoader, DataLoader]:
         train_loader = DataLoader(dataset=self.train_set, batch_size=batch_size, shuffle=shuffle_train,

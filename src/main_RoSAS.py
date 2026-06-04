@@ -1,151 +1,162 @@
+"""
+Entry point for the RoSAS semi-supervised baseline.
+
+RoSAS: Robust Semi-supervised Anomaly Selection
+(SIGKDD 2023, Ding et al.)
+
+Usage examples:
+  python src/main_RoSAS.py --dataset ALFA
+  python src/main_RoSAS.py --dataset Pegasus --n_epochs 200
+  python src/main_RoSAS.py --dataset ALFA --save_path ./saved_model/rosas_alfa.pt
+"""
+
+import argparse
+import logging
 import os
-import numpy as np
-import pandas as pd
-import torch
-import glob
-
+import sys
 import time
-import baselines.utils_RoSAS
+
+import numpy as np
+import torch
+
+sys.path.insert(0, os.path.dirname(__file__))
+
 from baselines.RoSAS import RoSAS
-# from datasets.spoofing_physical import SpoofingDatasetPhysical
+from utils.metrics import compute_anomaly_metrics, truth_multihot_to_single
+from utils.data import extract_numpy
 from datasets.main import load_dataset
-import wandb
 
 
-device = 'cuda' if torch.cuda.is_available() else 'cpu'
-params = {
-            'nbatch_per_epoch': 16,
-            'epochs': 200,
-            'batch_size': 32,
-            'lr': 0.005,
-            'n_emb': 128,
-            'alpha': 0.5,
-            'margin': 1,
-            'beta': 1,
-            'score_loss': 'smooth'
+DATASET_CONFIGS = {
+    'Pegasus': {
+        'known_outlier_classes': [1, 3, 4, 6],
+        'n_known_outlier_classes': 4,
+        'ratio_known_normal': 0.2,
+        'ratio_known_outlier': 0.3,
+        'ratio_pollution': 0.1,
+    },
+    'ALFA': {
+        'known_outlier_classes': [1, 2, 3, 4],
+        'n_known_outlier_classes': 4,
+        'ratio_known_normal': 0.2,
+        'ratio_known_outlier': 0.3,
+        'ratio_pollution': 0.1,
+    },
 }
-root_path = './'
 
 
-def run_model(df, dataset_name, runs):
-    model_name = args['algo']
-
-    print("------------------------------------ Dataset: [%s] ------------------------------------" % dataset_name)
-    # df.replace([np.inf, -np.inf], np.nan, inplace=True)
-    # df.fillna(method='ffill', inplace=True)
-    # x = np.load('./data/spoofing/data_multi_noise_batched.npy')
-    # y = np.load('./data/spoofing/labels_multi_noise_batched.npy')
-
-    # x_train, y_train, x_test, y_test, x_val, y_val = baselines.utils_RoSAS.split_train_test_val(x, y,
-    #                                                                             test_ratio=0.2,
-    #                                                                             val_ratio=0.2,
-    #                                                                             random_state=2021,
-    #                                                                             del_features=True)
-    # args['n_known'] = int(args['ratio_known_outlier'] * sum (y_train))
-    # semi_y = baselines.utils_RoSAS.semi_setting(y_train, n_known_outliers=args['n_known'])
-
-    # # # this is to control contamination rate and estimate the robustness
-    # if args['contamination'] is not None:
-        # x_train, y_train, semi_y = baselines.utils_RoSAS.adjust_contamination(x_train, y_train, semi_y,
-    #                                                           adjust_cont_r=args['contamination'],
-    #                                                           random_state=2021)
-
-    # Load dataset
-    dataset = load_dataset(dataset_name, data_path, normal_class, known_outlier_class, n_known_outlier_classes,
-                           args['ratio_known_normal'], args['ratio_known_outlier'], args['contamination'],
-                           random_state=np.random.RandomState(seed))
-    x_train, y_train, semi_y,x_test, y_test, x_val, y_val = dataset.data_direct()
-    # Align the labels
-    semi_y[semi_y == 1] = 0
-    semi_y[semi_y == -1] = 1  # 1 for labeled outliers
-
-    rauc, raucpr, rtime = np.zeros(runs), np.zeros(runs), np.zeros(runs)
-    for i in range(runs):
-        st = time.time()
-
-        params['use_es'] = args['use_es']
-        params['seed'] = 42 + i
-
-        model = RoSAS(**params)
-        model.fit(x_train, semi_y, val_x=x_val, val_y=y_val)
-        score = model.predict(x_test)
-
-        auroc, aupr, roc_curve = baselines.utils_RoSAS.evaluate(y_test, score)
-        rtime[i] = time.time() - st
-        rauc[i] = auroc
-        raucpr[i] = aupr
-
-        txt = f'{dataset_name}, AUC-ROC: {auroc:.4f}, AUC-PR: {aupr:.4f}, ' \
-              f'time: {rtime[i]:.1f}, runs: [{i+1}/{runs}]'
-
-        print(txt)
-        doc1 = open(args['res_path'] + f'@raw_{model_name}{args["flag"]}.csv', 'a')
-        print(txt, file=doc1)
-        doc1.close()
-
-    print_text = f"{dataset_name}, AUC-ROC, {np.average(rauc):.4f}, {np.std(rauc):.4f}," \
-                 f" AUC-PR, {np.average(raucpr):.4f}, {np.std(raucpr):.4f}, {np.average(rtime):.1f}," \
-                 f" {runs}runs, {args['ratio_known_outlier']*100}percent known, {args['contamination']:.2f}cont."
-    wandb.log({'auc_roc': np.average(rauc)})
-    print(print_text, end='\n\n\n')
-
-    if not args['debug']:
-        doc1 = open(args['res_path'] + f'{model_name}{args["flag"]}.csv', 'a')
-        print(print_text, file=doc1)
-        doc1.close()
-    net_dict = model.basenet.state_dict()
-    torch.save({'net_dict': net_dict,
-                'roc': roc_curve}, 'saved_model/RoSAS/model.pth')
-    return np.average(rauc), np.average(raucpr)
+def parse_args():
+    p = argparse.ArgumentParser(description="RoSAS semi-supervised baseline for PIAD_Ext")
+    p.add_argument("--dataset", default="ALFA", choices=list(DATASET_CONFIGS))
+    p.add_argument("--data_path", default="./data")
+    p.add_argument("--known_outlier_class", type=int, nargs="+", default=None)
+    p.add_argument("--ratio_known_normal", type=float, default=None)
+    p.add_argument("--ratio_known_outlier", type=float, default=None)
+    p.add_argument("--ratio_pollution", type=float, default=None)
+    p.add_argument("--seed", type=int, default=4)
+    # Model
+    p.add_argument("--n_epochs", type=int, default=200)
+    p.add_argument("--n_emb", type=int, default=128)
+    p.add_argument("--lr", type=float, default=0.005)
+    p.add_argument("--batch_size", type=int, default=32)
+    p.add_argument("--nbatch_per_epoch", type=int, default=16)
+    p.add_argument("--alpha", type=float, default=0.5)
+    p.add_argument("--margin", type=float, default=1.0)
+    p.add_argument("--beta", type=float, default=1.0)
+    p.add_argument("--score_loss", default="smooth")
+    p.add_argument("--no_early_stop", action="store_true")
+    # Output
+    p.add_argument("--save_path", default="./saved_model/rosas_checkpoint.pt")
+    p.add_argument("--no_save", action="store_true")
+    return p.parse_args()
 
 
-if __name__ == '__main__':
-    args = {'path': 'data',
-            'datasets': 'spoofing_physical',
-            'algo': 'rosas',
-            'flag': '',
-            'ratio_known_outlier': 0.003,
-            'ratio_known_normal': 0.001,  # Ratio of labeled normal train samples
-            'contamination': 0.05,
-            'runs': 1,
-            'log_avg': False,
-            'use_es': True,
-            'debug': False,
-            'res_path': 'log/'}
-    os.makedirs('log/', exist_ok=True)
-    os.makedirs(args['res_path'], exist_ok=True)
+def main():
+    args = parse_args()
 
-    wandb.init(
-        project='PIAD',
-        name='Physical_sweep_RoSAS',
+    torch.manual_seed(args.seed)
+    np.random.seed(args.seed)
+
+    logging.basicConfig(level=logging.INFO,
+                        format="%(asctime)s  %(levelname)s  %(message)s")
+    logger = logging.getLogger()
+
+    defaults = DATASET_CONFIGS[args.dataset]
+    known_outlier_class = tuple(
+        args.known_outlier_class if args.known_outlier_class is not None
+        else defaults['known_outlier_classes']
     )
-    # args['ratio_known_outlier'] = wandb.config.ratio_known_outlier
-    # args['contamination'] = wandb.config.ratio_pollution
-    dataset_name = 'spoofing_physical' 
-    data_path = './data'
-    normal_class = 0
-    seed = 4
-    known_outlier_class = 1
-    n_known_outlier_classes = 1  # Number of known outlier classes. If 0, no anomalies are known.
-    path = os.path.join(root_path, args['path'])
+
+    logger.info(f"Loading dataset: {args.dataset}")
+    dataset = load_dataset(
+        dataset_name=args.dataset,
+        data_path=args.data_path,
+        normal_class=0,
+        known_outlier_class=known_outlier_class,
+        n_known_outlier_classes=defaults['n_known_outlier_classes'],
+        ratio_known_normal=args.ratio_known_normal or defaults['ratio_known_normal'],
+        ratio_known_outlier=args.ratio_known_outlier or defaults['ratio_known_outlier'],
+        ratio_pollution=args.ratio_pollution or defaults['ratio_pollution'],
+        random_state=np.random.RandomState(args.seed),
+        subclasses=True,
+    )
+
+    logger.info("Extracting arrays …")
+    X_train, _,     semi_y = extract_numpy(dataset.train_set)
+    X_val,   y_val, _      = extract_numpy(dataset.val_set)
+    X_test,  y_test, _     = extract_numpy(dataset.test_set)
+    logger.info(f"  Train: {X_train.shape}  Val: {X_val.shape}  Test: {X_test.shape}")
+
+    trainer = RoSAS(
+        epochs=args.n_epochs,
+        n_emb=args.n_emb,
+        lr=args.lr,
+        batch_size=args.batch_size,
+        nbatch_per_epoch=args.nbatch_per_epoch,
+        alpha=args.alpha,
+        margin=args.margin,
+        beta=args.beta,
+        score_loss=args.score_loss,
+        use_es=not args.no_early_stop,
+        seed=args.seed,
+    )
+
+    logger.info("Training …")
+    t0 = time.time()
+    trainer.fit(X_train, semi_y, X_val, y_val)
+    train_time = time.time() - t0
+    logger.info(f"Training done in {train_time:.1f}s")
+
+    if not args.no_save:
+        os.makedirs(os.path.dirname(os.path.abspath(args.save_path)), exist_ok=True)
+        trainer.save_checkpoint(args.save_path)
+        logger.info(f"Checkpoint saved to {args.save_path}")
+
+    logger.info("Evaluating on test set …")
     t1 = time.time()
-    datasets_auc = []
-    datasets_aupr = []
+    y_score = trainer.predict(X_test)
+    y_pred  = trainer.predict_labels(X_test)
+    y_true  = truth_multihot_to_single(y_test)
+    test_time = time.time() - t1
+
+    stats = compute_anomaly_metrics(y_true, y_pred, y_score)
+
+    width = 35
+    print("=" * width)
+    print("    RoSAS Test Results")
+    print("=" * width)
+    print(f"  Dataset     : {args.dataset}")
+    print(f"  Test samples: {len(y_true)}")
+    print(f"  Train time  : {train_time:.1f}s")
+    print(f"  Test time   : {test_time:.3f}s")
+    print("-" * width)
+    print(f"  AUC            : {stats['auc']:.4f}")
+    print(f"  F1 (macro)     : {stats['f1_macro']:.4f}")
+    print(f"  F1 (weighted)  : {stats['f1_weighted']:.4f}")
+    print(f"  Accuracy       : {stats['accuracy']:.4f}")
+    print(f"  Anomaly Recall : {stats['anomaly_recall']:.4f}")
+    print("=" * width)
 
 
-    df = None
-    auroc, aupr = run_model(df, dataset_name=args['datasets'], runs=args['runs'])
-    datasets_auc.append(auroc)
-    datasets_aupr.append(aupr)
-
-
-    avg1 = np.average(datasets_auc)
-    avg2 = np.average(datasets_aupr)
-    avg = f"avg, AUC-ROC, {avg1:.3f}, AUC-PR, {avg2:.3f}, {time.time()-t1:.1f}s"
-    print(avg)
-
-    if args['log_avg'] and not args['debug']:
-        doc = open(args['res_path'] + f'{args["algo"]}{args["flag"]}.csv', 'a')
-        print("", file=doc)
-        print(avg, file=doc)
-        doc.close()
+if __name__ == "__main__":
+    main()

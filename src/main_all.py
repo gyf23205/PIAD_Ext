@@ -136,7 +136,8 @@ def main(dataset_name, net_name, xp_path, data_path, load_config=None, load_mode
                            n_jobs_dataloader=n_jobs_dataloader,
                            tau=tau,
                            model_path=model_path,
-                           save=save)
+                           save=save,
+                           aug_mode=aug_mode)
 
     # Test model
     deepSAD.test_physical(dataset, device=device, n_jobs_dataloader=n_jobs_dataloader) # Need to comment this line if want to save the pred branch and also the end of train_physical
@@ -148,7 +149,6 @@ def main(dataset_name, net_name, xp_path, data_path, load_config=None, load_mode
         cfg.save_config(export_json=model_path + f'/config_physical.json')
 
 if __name__ == '__main__':
-    "Test git"
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
     # Set training to be deterministic
@@ -159,9 +159,9 @@ if __name__ == '__main__':
     torch.backends.cudnn.benchmark = False
     os.environ['PYTHONHASHSEED'] = str(seed)
 
-    dataset_name = 'ALFA'
-    net_name = 'mlp_alfa'
-    xp_path = './log/ALFA' # Log path
+    dataset_name = 'Pegasus'
+    net_name = 'mlp_pegasus'
+    xp_path = './log/Pegasus' # Log path
     data_path = './data'
     ratio_known_outlier = 0.3 #0.3
     ratio_known_normal = 0.2 # 0.2
@@ -176,6 +176,7 @@ if __name__ == '__main__':
     weight_decay = 0.5e-6
     pretrain = False
     tau = 0.5
+    aug_mode = 'gaussian'   # 'gaussian' | 'nngmix' | 'both'
     subclasses = True
     save = True
     # ae_lr = 0.0001
@@ -206,10 +207,11 @@ if __name__ == '__main__':
         os.makedirs(model_path)
 
     # Log in wandb and setup hyperparameters
-    wandb.login(key='1888b9830153065d084181ffc29812cd1011b84b')
+    # wandb.login(key='1888b9830153065d084181ffc29812cd1011b84b')
+    wandb.login()
     wandb.init(
         project='PIAD_Ext',
-        name='w_proj',
+        name='Pegasus_data_test',
         config={
             'dataset':'scaled',
            'ratio_known_outlier': ratio_known_outlier,

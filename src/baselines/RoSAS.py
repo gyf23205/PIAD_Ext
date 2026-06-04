@@ -4,6 +4,7 @@ import numpy as np
 import random
 from torch.nn import functional as F
 from .utils_RoSAS import EarlyStopping, evaluate
+from utils.metrics import multihot_to_single, truth_multihot_to_single
 
 
 class RoSAS:
@@ -50,7 +51,13 @@ class RoSAS:
         dim = train_x.shape[1]
         self.dim = dim
 
-        # self.basenet = get_arch(self.network, dim=self.dim, n_emb=self.n_emb, device=self.device)
+        # Convert multi-hot labels to binary 1D for RoSAS internals.
+        # train_semi_y may be (n, n_ac) multi-hot or already 1D binary.
+        if train_semi_y.ndim == 2:
+            single_semi = multihot_to_single(train_semi_y)         # -1/0/1..K
+            train_semi_y = np.where(single_semi > 0, 1, single_semi)  # 0=normal,1=anomaly,-1=unlabeled
+        if val_y.ndim == 2:
+            val_y = (truth_multihot_to_single(val_y) > 0).astype(np.int64)
 
         n_hidden = dim + int((self.n_emb - dim) * 0.5)
         n_hidden2 = int(0.5 * self.n_emb)
@@ -138,6 +145,14 @@ class RoSAS:
 
             pre_loss_emb = losses1.mean()
             pre_loss_score = losses2.mean()
+
+        # Store threshold for predict_labels() using labeled samples.
+        labeled_mask = train_semi_y >= 0
+        if labeled_mask.any():
+            labeled_scores = self.predict(train_x[labeled_mask])
+            self._threshold = float(np.percentile(labeled_scores, 80))
+        else:
+            self._threshold = 0.0
         return
 
     def predict(self, x_test):
@@ -150,6 +165,29 @@ class RoSAS:
             xx_s = xx_s.data.cpu().numpy()
         return xx_s
 
+    def predict_labels(self, x_test):
+        """Return 0 (normal) or 1 (anomaly) based on stored threshold."""
+        return (self.predict(x_test) > self._threshold).astype(np.int64)
+
+    def save_checkpoint(self, path):
+        torch.save({
+            'net_dict': self.basenet.state_dict(),
+            'threshold': self._threshold,
+            'dim': self.dim,
+            'n_emb': self.n_emb,
+        }, path)
+
+    def load_checkpoint(self, path):
+        ckpt = torch.load(path, map_location=self.device)
+        self.dim = ckpt['dim']
+        self.n_emb = ckpt['n_emb']
+        self._threshold = ckpt['threshold']
+        n_hidden = self.dim + int((self.n_emb - self.dim) * 0.5)
+        n_hidden2 = int(0.5 * self.n_emb)
+        self.basenet = EDOSNet(n_feature=self.dim, n_hidden=n_hidden,
+                               n_hidden2=n_hidden2, n_emb=self.n_emb).to(self.device)
+        self.basenet.load_state_dict(ckpt['net_dict'])
+        self.basenet.eval()
 
 
 

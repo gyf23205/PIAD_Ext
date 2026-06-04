@@ -1,14 +1,10 @@
 import os
-import dill
 import numpy as np
 import pandas as pd
-import seaborn as sns
+from pathlib import Path
 from glob import glob
-import matplotlib.pyplot as plt
-from sklearn.preprocessing import StandardScaler
-from sklearn.feature_selection import VarianceThreshold
 
-data_path = "data/ALFA/single_failure/"
+data_path = "data/ALFA/all_flights/"
 time_column = "%time"
 timestamp_column = "timestamp"
 
@@ -29,10 +25,8 @@ def extract_topic_name(flight_name, file_name):
     return topic_name
 
 if __name__ == "__main__":
-    time_dict = {}
     flight_topic_dict = {}
     topic_list = []
-    all_columns = []
     df_dict = {}
     window_size = 25  # 5 seconds window at 5Hz frequency
     slide_size = 5   # Slide by 1 time step
@@ -69,15 +63,21 @@ if __name__ == "__main__":
     #                   "mavros-wind_estimation.twist.linear.y", "mavros-wind_estimation.twist.linear.z",
     #                   "mavros-vfr_hud.groundspeed"]
 
+    n_normal1 = 0
+    n_anomaly1 = 0
+
+    n_normal_file = 0
+    n_anomaly_file = 0
+
+    n_rows_normal = []
+    n_rows_anomaly = []
+
     # Iterate over the list of flight names
     for i, flight in enumerate(glob(os.path.join(data_path + "*"))):
         if any(x in flight for x in unused_flight_list):
             continue
         # print(i, flight)
         flight_name = os.path.basename(flight)
-
-        if flight_name not in time_dict:
-            time_dict[flight_name] = []
 
         if flight_name not in flight_topic_dict:
             flight_topic_dict[flight_name] = []
@@ -107,16 +107,16 @@ if __name__ == "__main__":
 
             # Special handling for the failure_status
             if "failure_status" in topic_name:
-                # print(flight_name, topic_name)
-                if len(dfx[topic_name + ".data"].unique()) > 2:
-                    print(f"Multiple failure types found in {flight_name} for topic {topic_name}: {dfx[topic_name + '.data'].unique()}")
-                    continue
                 # Give different labels for different failure types
                 if "engine" in topic_name: # Keep the engine failure status as 1
                     pass
                 elif "aileron" in topic_name: # Aileron failure will be labeled 2, 3. 3 is missing from single failure dataset and are contained in hybrid failure dataset
-                    # print(flight_name, topic_name, dfx[topic_name + ".data"].unique())
-                    dfx[topic_name + ".data"] = dfx[topic_name + ".data"].replace([1, 2], [2, 3])
+                    if flight_name == "carbonZ_2018-09-11-17-27-13_2_both_ailerons_failure":
+                        dfx[topic_name + ".data"] = dfx[topic_name + ".data"].replace([3], [8]) # 7 means both ailerons fail
+                    elif flight_name == "carbonZ_2018-09-11-17-27-13_1_rudder_zero__left_aileron_failure":
+                        dfx[topic_name + ".data"] = dfx[topic_name + ".data"].replace([2], [9])
+                    else:
+                        dfx[topic_name + ".data"] = dfx[topic_name + ".data"].replace([1, 2], [2, 3])
 
                 elif "elevator" in topic_name: # Elevator failure will be labeled 4
                     dfx[topic_name + ".data"] = dfx[topic_name + ".data"].replace([1], [4])
@@ -128,24 +128,31 @@ if __name__ == "__main__":
                 df_merged = dfx
             else:
                 df_merged = df_merged.merge(dfx, left_index=True, right_index=True, how="outer")
-            
-            if "failure_status" in topic_name:
-                df_merged.iloc[0] = df_merged.iloc[0].fillna(dfx.iloc[0].max())
-            else:
-                df_merged.iloc[0] = df_merged.iloc[0].fillna(0)
-            df_merged = df_merged.ffill()
+            df_merged = df_merged.ffill().bfill()
 
-            all_columns.append(list(dfx.columns))
-            
-            diff_seconds = pd.to_timedelta((dfx.index[-1] - dfx.index[0])).total_seconds()
-            diff_seconds = int(diff_seconds)
-            time_dict[flight_name].append(diff_seconds)
 
-        
         df_merged = df_merged.drop(unused_columns, axis=1, errors="ignore")
         df_dict[flight_name] = df_merged
+        if "no_failure" in flight_name:
+            n_normal_file += 1
+            n_normal1 += df_merged.values.shape[0]
+            n_rows_normal.append(df_merged.values.shape[0])
+        else:
+            n_anomaly_file += 1
+            n_anomaly1 += df_merged.values.shape[0]
+            n_rows_anomaly.append(df_merged.values.shape[0])
 
-        # print()
+    print("normal: ", n_normal1)
+    print("anoamly: ", n_anomaly1)
+
+    print(n_normal_file)
+    print(n_anomaly_file)
+
+    print(n_rows_normal)
+    print(n_rows_anomaly)
+
+    print(np.mean(n_rows_normal))
+    print(np.mean(n_rows_anomaly))
 
     X_all = []
     y_all = []
@@ -153,23 +160,24 @@ if __name__ == "__main__":
 
     # Convert to numpy arrays
     for flight_name, df in df_dict.items():      
-        # Extract labels. All the labels for a flight are the same
-        if "no_failure" in flight_name:
-            y = 0
-        else:
-            for col in df.columns:
-                if "status" in col:
-                    y = df[col].values[0]
-                    break
-
         # Extract features
         X = df.drop(columns=[col for col in df.columns if "status" in col]).values
-        n_windows = (len(X) - window_size) // slide_size # + 1
+
+        n_windows = (len(X) - window_size) // slide_size
         starts = np.arange(n_windows) * slide_size
         ends = starts + window_size
         X_win = np.stack([X[starts[i]:ends[i]] for i in range(n_windows)])
-        y_win = np.ones(n_windows) * y
         X_next = X[ends, :]
+
+        # Extract labels.
+        if "no_failure" in flight_name:
+            y_win = np.zeros(n_windows)
+        else:
+            for col in df.columns:
+                if "status" in col:
+                    y = df[col].values
+                    break
+            y_win = np.array([max(y[starts[i]:ends[i]]) for i in range(n_windows)])
 
         X_all.append(X_win)
         y_all.append(y_win)
@@ -190,6 +198,6 @@ if __name__ == "__main__":
     print(f"Num of normal samples: {np.sum(y_all==0)}, Num of anomaly samples: {np.sum(y_all!=0)}")
 
     # Save the final numpy arrays
-    np.save("data/ALFA/X_median-resampling_single_anomalies.npy", X_all)
-    np.save("data/ALFA/y_median-resampling_single_anomalies.npy", y_all)
-    np.save("data/ALFA/next_median-resampling_single_anomalies.npy", next_all)
+    # np.save("data/ALFA/X_all.npy", X_all)
+    # np.save("data/ALFA/y_all.npy", y_all)
+    # np.save("data/ALFA/next_all.npy", next_all)
