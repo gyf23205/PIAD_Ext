@@ -31,17 +31,19 @@ from datasets.main import load_dataset
 DATASET_CONFIGS = {
     'Pegasus': {
         'known_outlier_classes': [1, 3, 4, 6],
-        'n_known_outlier_classes': 4,
-        'ratio_known_normal': 0.2,
-        'ratio_known_outlier': 0.3,
-        'ratio_pollution': 0.1,
+        'n_known_outlier_classes': 4
     },
     'ALFA': {
         'known_outlier_classes': [1, 2, 3, 4],
-        'n_known_outlier_classes': 4,
-        'ratio_known_normal': 0.2,
-        'ratio_known_outlier': 0.3,
-        'ratio_pollution': 0.1,
+        'n_known_outlier_classes': 4
+    },
+    'spoofing_multi_profile': {
+        'known_outlier_classes': [1],
+        'n_known_outlier_classes': 1
+    },
+    'spoofing_wind': {
+        'known_outlier_classes': [1],
+        'n_known_outlier_classes': 1
     },
 }
 
@@ -69,7 +71,7 @@ def parse_args():
     # Output
     p.add_argument("--save_path", default="./saved_model/rosas_checkpoint.pt")
     p.add_argument("--no_save", action="store_true")
-    return p.parse_args()
+    return p.parse_known_args()[0]
 
 
 def main(ratio_pollution=None, ratio_known_outlier=None, ratio_known_normal=None, seed=None):
