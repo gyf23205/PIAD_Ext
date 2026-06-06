@@ -48,6 +48,11 @@ class RoSAS:
 
     def fit(self, train_x, train_semi_y, val_x, val_y):
         device = self.device
+        # RoSAS is a tabular method; flatten any sequence/spatial dims.
+        if train_x.ndim > 2:
+            train_x = train_x.reshape(train_x.shape[0], -1)
+        if val_x.ndim > 2:
+            val_x = val_x.reshape(val_x.shape[0], -1)
         dim = train_x.shape[1]
         self.dim = dim
 
@@ -112,7 +117,7 @@ class RoSAS:
             # --- validate on validation set --- #
             val_score = self.predict(val_x)
             try:
-                val_auroc, val_aupr = evaluate(val_y, val_score)
+                val_auroc, val_aupr, _ = evaluate(val_y, val_score)
                 if self.use_es:
                     early_metric = (1 - val_aupr) + (1 - val_auroc)
                     early_stp(early_metric, model=self.basenet)
@@ -157,6 +162,8 @@ class RoSAS:
 
     def predict(self, x_test):
         device = self.device
+        if x_test.ndim > 2:
+            x_test = x_test.reshape(x_test.shape[0], -1)
         with torch.no_grad():
             self.basenet.eval()
             xx = torch.from_numpy(x_test).float().to(device)
