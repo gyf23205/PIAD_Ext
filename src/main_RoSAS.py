@@ -31,19 +31,31 @@ from datasets.main import load_dataset
 DATASET_CONFIGS = {
     'Pegasus': {
         'known_outlier_classes': [1, 3, 4, 6],
-        'n_known_outlier_classes': 4
+        'n_known_outlier_classes': 4,
+        'ratio_known_normal': 0.0,
+        'ratio_known_outlier': 0.0,
+        'ratio_pollution': 0.0,
     },
     'ALFA': {
         'known_outlier_classes': [1, 2, 3, 4],
-        'n_known_outlier_classes': 4
+        'n_known_outlier_classes': 4,
+        'ratio_known_normal': 0.0,
+        'ratio_known_outlier': 0.0,
+        'ratio_pollution': 0.0,
     },
     'spoofing_multi_profile': {
         'known_outlier_classes': [1],
-        'n_known_outlier_classes': 1
+        'n_known_outlier_classes': 1,
+        'ratio_known_normal': 0.0,
+        'ratio_known_outlier': 0.0,
+        'ratio_pollution': 0.0,
     },
     'spoofing_wind': {
         'known_outlier_classes': [1],
-        'n_known_outlier_classes': 1
+        'n_known_outlier_classes': 1,
+        'ratio_known_normal': 0.0,
+        'ratio_known_outlier': 0.0,
+        'ratio_pollution': 0.0,
     },
 }
 
