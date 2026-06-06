@@ -54,7 +54,7 @@ class EarlyStopping:
         elif structrue == 'keras':
             self.path = "checkpoints/" + model_name + '.' + mask + "_checkpoint.h5"
         if not os.path.exists(os.path.split(self.path)[0]):
-            os.mkdir(os.path.split(self.path)[0])
+            os.makedirs(os.path.split(self.path)[0], exist_ok=True)
 
     def __call__(self, val_loss, model):
         score = -val_loss

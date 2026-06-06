@@ -104,8 +104,7 @@ def main(ratio_pollution=None, ratio_known_outlier=None, ratio_known_normal=None
         ratio_known_normal=args.ratio_known_normal or defaults['ratio_known_normal'],
         ratio_known_outlier=args.ratio_known_outlier or defaults['ratio_known_outlier'],
         ratio_pollution=args.ratio_pollution or defaults['ratio_pollution'],
-        random_state=np.random.RandomState(args.seed),
-        subclasses=True,
+        random_state=np.random.RandomState(args.seed)
     )
 
     logger.info("Extracting arrays …")
