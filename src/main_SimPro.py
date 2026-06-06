@@ -16,6 +16,7 @@ import time
 
 import numpy as np
 import torch
+import wandb
 sys.path.insert(0, os.path.join(os.path.dirname(__file__)))
 
 from baselines.SimPro import SimProTrainer
@@ -65,8 +66,12 @@ def parse_args():
     return p.parse_args()
 
 
-def main():
+def main(ratio_pollution=None, ratio_known_outlier=None, ratio_known_normal=None, seed=None):
     args = parse_args()
+    if ratio_pollution     is not None: args.ratio_pollution     = ratio_pollution
+    if ratio_known_outlier is not None: args.ratio_known_outlier = ratio_known_outlier
+    if ratio_known_normal  is not None: args.ratio_known_normal  = ratio_known_normal
+    if seed                is not None: args.seed                = seed
 
     torch.manual_seed(args.seed)
     np.random.seed(args.seed)
@@ -150,6 +155,31 @@ def main():
     print(f"  Anomaly Recall : {stats['anomaly_recall']:.4f}")
     print("=" * width)
 
+    wandb.log({
+        'val_auc':        best_auc,
+        'test_auc':       stats['auc'],
+        'f1_macro':       stats['f1_macro'],
+        'f1_weighted':    stats['f1_weighted'],
+        'accuracy':       stats['accuracy'],
+        'anomaly_recall': stats['anomaly_recall'],
+    })
+
 
 if __name__ == "__main__":
-    main()
+    wandb.login()
+    wandb.init(
+        project='PIAD_Ext',
+        name='SimPro',
+        config={
+            'lr': 0.01,
+            'n_epochs': 200,
+            'batch_size': 64,
+            'tau': 1.0,
+            'threshold': 0.95,
+        }
+    )
+    ratio_pollution, ratio_known_outlier, ratio_known_normal = wandb.config.ratios
+    seed = wandb.config.seed
+    main(ratio_pollution=ratio_pollution, ratio_known_outlier=ratio_known_outlier,
+         ratio_known_normal=ratio_known_normal, seed=seed)
+wandb.finish()

@@ -149,6 +149,8 @@ def main(dataset_name, net_name, xp_path, data_path, load_config=None, load_mode
     # Test model
     deepSAD.test(dataset, device=device, n_jobs_dataloader=n_jobs_dataloader)
 
+    wandb.log({'test_auc': deepSAD.results['test_auc']})
+
     # Save results, model, and configuration
     deepSAD.save_results(export_json=model_path + '/results.json')
     deepSAD.save_model(export_model=model_path + '/model.tar', save_ae=pretrain)
@@ -156,20 +158,10 @@ def main(dataset_name, net_name, xp_path, data_path, load_config=None, load_mode
 
 
 if __name__ == '__main__':
-    wandb.login(key='1888b9830153065d084181ffc29812cd1011b84b')
-
     dataset_name = 'spoofing_physical'
     net_name = 'spoof_mlp'
-    xp_path = './log/DeepSAD/spoofing' # Log path
+    xp_path = './log/DeepSAD/spoofing'
     data_path = './data'
-    ratio_known_outlier = 0.003
-    ratio_known_normal = 0
-    ratio_pollution = 0.05
-    rko = str(ratio_known_outlier).replace('.','')
-    rp = str(ratio_pollution).replace('.','')
-    model_path = f'./saved_model/vanilla/model_{rko}_{rp}'
-    if not os.path.exists(model_path):
-        os.makedirs(model_path)
     lr = 0.0001
     eta = 5.0
     n_epochs = 300
@@ -183,34 +175,44 @@ if __name__ == '__main__':
     ae_weight_decay = 0.5e-3
     normal_class = 0
     known_outlier_class = 1
-    n_known_outlier_classes = 1 # Number of known outlier classes. If 0, no anomalies are known. 
-                                # If 1, outlier class as specified in --known_outlier_class option.
-                                # If > 1, the specified number of outlier classes will be sampled at random.
-    
-    
+    n_known_outlier_classes = 1
+
+    wandb.login()
     wandb.init(
-        project='PIAD',
-        name='Vanilla real',
+        project='PIAD_Ext',
+        name='DeepSAD_vanilla',
         config={
-           'ratio_known_outlier': ratio_known_outlier,
-           'ratio_pollution': ratio_pollution,
-           'ratio_known_normal':ratio_known_normal,
-           'lr': lr,
-           'batch size': batch_size,
-           'weight decay': weight_decay,
-           'physical': False,
-           'iter': n_epochs,
-           'pretrain': pretrain
+            'dataset': dataset_name,
+            'lr': lr,
+            'batch_size': batch_size,
+            'weight_decay': weight_decay,
+            'physical': False,
+            'n_epochs': n_epochs,
+            'pretrain': pretrain,
         }
     )
 
-    setting.init([512, 512, 1024])
-    # Make the code deterministic
-    seed = 4
+    ratio_pollution, ratio_known_outlier, ratio_known_normal = wandb.config.ratios
+    seed = wandb.config.seed
 
-    main(dataset_name, net_name, xp_path, data_path, eta=eta, ratio_known_outlier=ratio_known_outlier,
-          ratio_pollution=ratio_pollution, ratio_known_normal=ratio_known_normal, lr=lr, n_epochs=n_epochs, lr_milestone=lr_milestone,
-          weight_decay=weight_decay, pretrain=pretrain, ae_lr=ae_lr, ae_n_epochs=ae_n_epochs,
-          batch_size=batch_size, ae_batch_size=ae_batch_size, ae_weight_decay=ae_weight_decay, normal_class=normal_class,
-          known_outlier_class=known_outlier_class, n_known_outlier_classes=n_known_outlier_classes,seed=seed
-         )
+    rko = str(ratio_known_outlier).replace('.', '')
+    rp  = str(ratio_pollution).replace('.', '')
+    model_path = f'./saved_model/vanilla/model_{rko}_{rp}'
+    if not os.path.exists(model_path):
+        os.makedirs(model_path)
+
+    setting.init([512, 512, 1024])
+
+    main(dataset_name, net_name, xp_path, data_path, eta=eta,
+         ratio_known_outlier=ratio_known_outlier,
+         ratio_pollution=ratio_pollution,
+         ratio_known_normal=ratio_known_normal,
+         lr=lr, n_epochs=n_epochs, lr_milestone=lr_milestone,
+         weight_decay=weight_decay, pretrain=pretrain,
+         ae_lr=ae_lr, ae_n_epochs=ae_n_epochs,
+         batch_size=batch_size, ae_batch_size=ae_batch_size,
+         ae_weight_decay=ae_weight_decay, normal_class=normal_class,
+         known_outlier_class=known_outlier_class,
+         n_known_outlier_classes=n_known_outlier_classes, seed=seed)
+
+wandb.finish()

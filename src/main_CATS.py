@@ -15,6 +15,7 @@ import logging
 import os
 import sys
 import time
+import wandb
 
 import numpy as np
 import torch
@@ -52,7 +53,6 @@ DATASET_CONFIGS = {
         'ratio_known_outlier': 0.3,
         'ratio_known_normal': 0.2,
         'ratio_pollution': 0.1,
-        'subclasses': True,
         'setting_hypers': [256, 512, 64, 2.0],   # hd1, hd2, rep, T
         'cats_hypers': {
             'coef_gcl': 0.5,
@@ -76,7 +76,52 @@ DATASET_CONFIGS = {
         'ratio_known_outlier': 0.3,
         'ratio_known_normal': 0.2,
         'ratio_pollution': 0.1,
-        'subclasses': True,
+        'setting_hypers': [256, 512, 64, 2.0],
+        'cats_hypers': {
+            'coef_gcl': 0.5,
+            'coef_tcl': 0.5,
+            'lr': 0.001,
+            'n_epochs': 100,
+            'patience': 50,
+            'batch_size': 512,
+            'temperature': 0.1,
+            'gamma': 1.0,
+            'margin': 5.0,
+        },
+    },
+    'spoofing_multi_profile': {
+        'net_name': 'cats_ts2vec_spoofing_mp',
+        'win_size': 100,
+        'n_features': 12,
+        'normal_class': 0,
+        'known_outlier_classes': [1, 2],
+        'n_known_outlier_classes': 2,
+        'ratio_known_outlier': 0.3,
+        'ratio_known_normal': 0.2,
+        'ratio_pollution': 0.1,
+        'setting_hypers': [256, 512, 64, 2.0],
+        'cats_hypers': {
+            'coef_gcl': 0.5,
+            'coef_tcl': 0.5,
+            'lr': 0.001,
+            'n_epochs': 100,
+            'patience': 50,
+            'batch_size': 512,
+            'temperature': 0.1,
+            'gamma': 1.0,
+            'margin': 5.0,
+        },
+    },
+    'spoofing_wind': {
+        'net_name': 'cats_ts2vec_spoofing_wind',
+        'win_size': 100,
+        'n_features': 12,
+        'normal_class': 0,
+        'known_outlier_classes': [1, 2],
+        'n_known_outlier_classes': 2,
+        'ratio_known_outlier': 0.3,
+        'ratio_known_normal': 0.2,
+        'ratio_pollution': 0.1,
         'setting_hypers': [256, 512, 64, 2.0],
         'cats_hypers': {
             'coef_gcl': 0.5,
@@ -129,8 +174,13 @@ def parse_args():
     return p.parse_args()
 
 
-def main():
+def main(ratio_pollution=None, ratio_known_outlier=None, ratio_known_normal=None, seed=None, dataset=None):
     args = parse_args()
+    if ratio_pollution     is not None: args.ratio_pollution     = ratio_pollution
+    if ratio_known_outlier is not None: args.ratio_known_outlier = ratio_known_outlier
+    if ratio_known_normal  is not None: args.ratio_known_normal  = ratio_known_normal
+    if seed                is not None: args.seed                = seed
+    if dataset             is not None: args.dataset             = dataset
 
     torch.manual_seed(args.seed)
     np.random.seed(args.seed)
@@ -163,7 +213,6 @@ def main():
         ratio_known_outlier=ratio_known_outlier,
         ratio_pollution=ratio_pollution,
         random_state=np.random.RandomState(args.seed),
-        subclasses=defaults.get('subclasses', True),
     )
 
     logger.info('Extracting training / validation / test arrays ...')
@@ -268,6 +317,36 @@ def main():
     print(f'  Anomaly Recall : {stats["anomaly_recall"]:.4f}')
     print('=' * width)
 
+    wandb.log({
+        'val_auc':        best_auc,
+        'test_auc':       stats['auc'],
+        'f1_macro':       stats['f1_macro'],
+        'f1_weighted':    stats['f1_weighted'],
+        'accuracy':       stats['accuracy'],
+        'anomaly_recall': stats['anomaly_recall'],
+        'bin_auc':        bin_auc,
+        'bin_f1':         bin_f1,
+        'bin_mcc':        bin_mcc,
+        'bin_accuracy':   bin_acc,
+        'bin_recall':     bin_recall,
+    })
+
 
 if __name__ == '__main__':
-    main()
+    wandb.login()
+    wandb.init(
+        project='PIAD_Ext',
+        name='CATS',
+        config={
+            'encoder_type': 'ts2vec',
+            'lr': 0.001,
+            'n_epochs': 100,
+            'batch_size': 512,
+        }
+    )
+    ratio_pollution, ratio_known_outlier, ratio_known_normal = wandb.config.ratios
+    seed = wandb.config.seed
+    dataset = wandb.config.dataset
+    main(ratio_pollution=ratio_pollution, ratio_known_outlier=ratio_known_outlier,
+         ratio_known_normal=ratio_known_normal, seed=seed, dataset=dataset)
+wandb.finish()

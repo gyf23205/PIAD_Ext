@@ -22,6 +22,7 @@ import warnings
 import numpy as np
 import torch
 import torch.nn as nn
+import wandb
 from torch import optim
 
 warnings.filterwarnings('ignore')
@@ -250,11 +251,21 @@ class Exp_Anomaly_Detection(Exp_Basic):
 
         print(f"Accuracy: {accuracy:.4f}  Precision: {precision:.4f}  "
               f"Recall: {recall:.4f}  F-score: {f_score:.4f}  ROC AUC: {roc_auc:.4f}")
-        return threshold, test_energy
+        metrics = {
+            'accuracy':  accuracy,
+            'precision': precision,
+            'recall':    recall,
+            'f1':        f_score,
+            'roc_auc':   roc_auc,
+        }
+        return threshold, test_energy, metrics
 
 
-def main():
+def main(ratio_pollution=None, ratio_known_outlier=None, ratio_known_normal=None, seed=None):
     args = parse_args()
+    if ratio_pollution is not None: args.ratio_pollution = ratio_pollution
+    if seed            is not None: args.seed            = seed
+
     torch.manual_seed(args.seed)
     np.random.seed(args.seed)
 
@@ -293,7 +304,15 @@ def main():
 
     tmp_model_path = './saved_model/TimesNet_tmp'
     exp.train(train_loader, vali_loader, test_loader, tmp_model_path)
-    threshold, test_energy = exp.test(train_loader, test_loader, ratio_pollution)
+    threshold, test_energy, metrics = exp.test(train_loader, test_loader, ratio_pollution)
+
+    wandb.log({
+        'accuracy':  metrics['accuracy'],
+        'precision': metrics['precision'],
+        'recall':    metrics['recall'],
+        'f1':        metrics['f1'],
+        'roc_auc':   metrics['roc_auc'],
+    })
 
     if not args.no_save:
         os.makedirs(os.path.dirname(os.path.abspath(args.save_path)), exist_ok=True)
@@ -306,4 +325,20 @@ def main():
 
 
 if __name__ == '__main__':
-    main()
+    wandb.login()
+    wandb.init(
+        project='PIAD_Ext',
+        name='TimesNet',
+        config={
+            'train_epochs': 20,
+            'batch_size': 128,
+            'learning_rate': 1e-4,
+            'd_model': 128,
+            'd_ff': 128,
+        }
+    )
+    ratio_pollution, ratio_known_outlier, ratio_known_normal = wandb.config.ratios
+    seed = wandb.config.seed
+    main(ratio_pollution=ratio_pollution, ratio_known_outlier=ratio_known_outlier,
+         ratio_known_normal=ratio_known_normal, seed=seed)
+wandb.finish()
