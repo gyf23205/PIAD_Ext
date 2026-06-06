@@ -47,13 +47,17 @@ class DeepSAD(object):
         self.ae_optimizer_name = None
 
         self.results = {
-            'train_time': None,
-            'test_auc': None,
-            'test_f1': None,
-            'test_acc': None,
-            'test_recall': None,
-            'test_time': None,
-            'test_scores': None,
+            'test_loss':             None,
+            'test_auc':              None,
+            'test_time':             None,
+            'test_f1_macro_mh':      None,
+            'test_f1_micro_mh':      None,
+            'test_hamming_acc':      None,
+            'test_subset_acc':       None,
+            'test_f1_binary':        None,
+            'test_precision_binary': None,
+            'test_recall_binary':    None,
+            'test_acc_binary':       None,
         }
 
         self.ae_results = {
@@ -111,17 +115,17 @@ class DeepSAD(object):
         self.trainer.test(dataset, self.net)
 
         # Get results
-        self.results['test_auc']              = self.trainer.test_auc
-        self.results['test_time']             = self.trainer.test_time
-        self.results['test_scores']           = self.trainer.test_scores
-        self.results['test_f1_macro_mh']      = self.trainer.test_f1_macro_mh
-        self.results['test_f1_micro_mh']      = self.trainer.test_f1_micro_mh
-        self.results['test_hamming_acc']      = self.trainer.test_hamming_acc
-        self.results['test_subset_acc']       = self.trainer.test_subset_acc
-        self.results['test_f1_binary']        = self.trainer.test_f1_binary
-        self.results['test_precision_binary'] = self.trainer.test_precision_binary
-        self.results['test_recall_binary']    = self.trainer.test_recall_binary
-        self.results['test_acc_binary']       = self.trainer.test_acc_binary
+        self.results['test_loss']            = self.trainer.test_loss
+        self.results['test_auc']             = self.trainer.test_auc
+        self.results['test_time']            = self.trainer.test_time
+        self.results['test_f1_macro_mh']     = self.trainer.test_f1_macro_mh
+        self.results['test_f1_micro_mh']     = self.trainer.test_f1_micro_mh
+        self.results['test_hamming_acc']     = self.trainer.test_hamming_acc
+        self.results['test_subset_acc']      = self.trainer.test_subset_acc
+        self.results['test_f1_binary']       = self.trainer.test_f1_binary
+        self.results['test_precision_binary']= self.trainer.test_precision_binary
+        self.results['test_recall_binary']   = self.trainer.test_recall_binary
+        self.results['test_acc_binary']      = self.trainer.test_acc_binary
         wandb.log(self.results)
 
     def pretrain(self, dataset: BaseADDataset, optimizer_name: str = 'adam', lr: float = 0.001, n_epochs: int = 100,

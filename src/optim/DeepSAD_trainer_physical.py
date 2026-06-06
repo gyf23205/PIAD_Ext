@@ -137,6 +137,7 @@ class DeepSADTrainerPhysical(BaseTrainer):
         self.per_class_thresholds = None   # list[float], one per known outlier class
 
         self.train_time          = None
+        self.test_loss           = None
         self.test_auc            = None
         self.test_time           = None
         self.test_scores         = None
@@ -454,6 +455,7 @@ class DeepSADTrainerPhysical(BaseTrainer):
         self.test_recall_binary    = recall_score(labels_bin, y_pred_bin, zero_division=0)
         self.test_acc_binary       = float(np.mean(labels_bin == y_pred_bin))
 
+        self.test_loss = epoch_loss / n_batches
         logger.info('Test Loss: {:.6f}'.format(epoch_loss / n_batches))
         logger.info('Test AUC: {:.2f}%'.format(100. * self.test_auc))
         logger.info('Test Time: {:.3f}s'.format(self.test_time))

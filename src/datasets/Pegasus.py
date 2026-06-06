@@ -80,7 +80,7 @@ from pathlib import Path
 
 class Pegasus(BaseADDataset):
     def __init__(self, root: str, known_outlier_class: tuple = tuple(), n_known_outlier_classes: int = 0, ratio_known_normal: float = 0.0,
-                 ratio_known_outlier: float = 0.0, ratio_pollution: float = 0.0, training: bool = True, random_state=None):
+                 ratio_known_outlier: float = 0.0, ratio_pollution: float = 0.0, random_state=None):
         super().__init__(root)
         # 0: normal, 1: spoofing, 2: replay, 3: gyro bias,
         # 4: motor fault, 5: motor delay, 6: GPS denial, 7: IMU HF noise
@@ -106,14 +106,7 @@ class Pegasus(BaseADDataset):
         flags_mh     = data_train["labels"].astype(np.float32)  # (n, n_anomaly_classes) multi-hot
 
         idx_norm = (flags_mh == 0).all(axis=1)
-        if training:
-            known_cols = [list(self.outlier_classes).index(c) for c in self.known_outlier_classes]
-            if known_cols:
-                idx_out = flags_mh[:, known_cols].any(axis=1)
-            else:
-                idx_out = np.zeros(len(flags_mh), dtype=bool)
-        else:
-            idx_out = flags_mh.any(axis=1)
+        idx_out = flags_mh.any(axis=1)
 
         test_ratio = 0.3
 

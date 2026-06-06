@@ -14,7 +14,7 @@ from pathlib import Path
 
 
 class ALFA(BaseADDataset):
-    def __init__(self, root: str, known_outlier_class: tuple = tuple(), training: bool = True, n_known_outlier_classes: int = 0, ratio_known_normal: float = 0.0,
+    def __init__(self, root: str, known_outlier_class: tuple = tuple(), n_known_outlier_classes: int = 0, ratio_known_normal: float = 0.0,
                  ratio_known_outlier: float = 0.0, ratio_pollution: float = 0.0, random_state=None):
         super().__init__(root)
 
@@ -76,10 +76,7 @@ class ALFA(BaseADDataset):
                 flags_mh[flags == cls, col] = 1.0
 
         idx_norm = (flags == 0)
-        if training:
-            idx_out = np.isin(flags, self.known_outlier_classes)
-        else:
-            idx_out = np.isin(flags, self.outlier_classes)
+        idx_out = np.isin(flags, self.outlier_classes)
 
         # Split normal samples
         (X_train_norm, X_test_norm,
