@@ -78,7 +78,7 @@ class SpoofingWindPhysical(BaseADDataset):
         idx, _, semi_targets = create_semisupervised_setting(train_set.targets.cpu().data.numpy(), self.normal_classes,
                                                         self.unknown_outlier_classes, self.known_outlier_classes,
                                                         ratio_known_normal, ratio_known_outlier, ratio_pollution)
-        train_set.semi_targets[idx] = torch.tensor(semi_targets)
+        train_set.semi_targets[idx] = torch.tensor(semi_targets, dtype=torch.float32)
 
         self.X_train, self.y_train, self.semi_y, self.X_test, self.y_test, self.X_val, self.y_val = X_train, y_train, np.array(semi_targets), X_test, y_test, X_val, y_val
         # Subset train_+set to semi_supervised setup

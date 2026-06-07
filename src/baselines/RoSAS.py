@@ -355,8 +355,9 @@ class DataGenerator:
 
         for i in range(n_batches):
             anom_idx = np.random.choice(len(self.anom_x), self.batch_size)
-            anchor_idx = np.random.choice(len(self.norm_x), self.batch_size, replace=False)
-            pos_idx = np.random.choice(len(self.norm_x), self.batch_size, replace=False)
+            replace = len(self.norm_x) < self.batch_size
+            anchor_idx = np.random.choice(len(self.norm_x), self.batch_size, replace=replace)
+            pos_idx = np.random.choice(len(self.norm_x), self.batch_size, replace=replace)
 
             batch = [[self.norm_x[a], self.norm_x[p], self.anom_x[n]] for a, p, n in zip(anchor_idx, pos_idx, anom_idx)]
             batch_set.append(batch)
