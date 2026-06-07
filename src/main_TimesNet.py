@@ -255,7 +255,7 @@ class Exp_Anomaly_Detection(Exp_Basic):
         if test_labels_np.ndim == 2:
             gt = (test_labels_np.sum(axis=-1) > 0).astype(int)
         else:
-            gt = test_labels_np.astype(int)
+            gt = (test_labels_np > 0).astype(int)
 
         gt, pred = adjustment(gt, pred)
         pred, gt = np.array(pred), np.array(gt)
