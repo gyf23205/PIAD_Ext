@@ -103,7 +103,7 @@ def parse_args():
     # Output
     p.add_argument("--save_path", default="./saved_model/timesnet_checkpoint.pt")
     p.add_argument("--no_save", action="store_true")
-    return p.parse_args()
+    return p.parse_known_args()[0]
 
 
 class Exp_Anomaly_Detection(Exp_Basic):

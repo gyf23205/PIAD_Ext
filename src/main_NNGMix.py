@@ -34,8 +34,7 @@ DATASET_CONFIGS = {
         'ratio_known_outlier': 0.3,
         'ratio_known_normal': 0.2,
         'ratio_pollution': 0.1,
-        'subclasses': True,
-        'setting_hypers': [256, 512, 64, 2.0],  # hd1, hd2, rep, T
+        'setting_hypers': [256, 512, 64, 2.0],
     },
     'ALFA': {
         'normal_class': 0,
@@ -44,7 +43,24 @@ DATASET_CONFIGS = {
         'ratio_known_outlier': 0.3,
         'ratio_known_normal': 0.2,
         'ratio_pollution': 0.1,
-        'subclasses': True,
+        'setting_hypers': [256, 512, 64, 2.0],
+    },
+    'spoofing_multi_profile': {
+        'normal_class': 0,
+        'known_outlier_classes': [1, 2],
+        'n_known_outlier_classes': 2,
+        'ratio_known_outlier': 0.3,
+        'ratio_known_normal': 0.2,
+        'ratio_pollution': 0.1,
+        'setting_hypers': [256, 512, 64, 2.0],
+    },
+    'spoofing_wind': {
+        'normal_class': 0,
+        'known_outlier_classes': [1, 2],
+        'n_known_outlier_classes': 2,
+        'ratio_known_outlier': 0.3,
+        'ratio_known_normal': 0.2,
+        'ratio_pollution': 0.1,
         'setting_hypers': [256, 512, 64, 2.0],
     },
 }
@@ -96,7 +112,7 @@ def parse_args():
                    help='Where to save the trained checkpoint')
     p.add_argument('--no_save', action='store_true',
                    help='Skip saving the checkpoint')
-    return p.parse_args()
+    return p.parse_known_args()[0]
 
 
 
@@ -139,7 +155,6 @@ def main(ratio_pollution=None, ratio_known_outlier=None, ratio_known_normal=None
         ratio_known_outlier=ratio_known_outlier,
         ratio_pollution=ratio_pollution,
         random_state=np.random.RandomState(args.seed),
-        subclasses=defaults.get('subclasses', True),
     )
 
     logger.info('Extracting training / validation / test arrays ...')

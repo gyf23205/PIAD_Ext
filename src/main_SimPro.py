@@ -29,7 +29,7 @@ def parse_args():
     p = argparse.ArgumentParser(description="SimPro semi-supervised baseline for PIAD_Ext")
     # Dataset
     p.add_argument("--dataset", default="ALFA",
-                   choices=["ALFA", "Pegasus"],
+                   choices=["ALFA", "Pegasus", "spoofing_multi_profile", "spoofing_wind"],
                    help="Dataset name")
     p.add_argument("--data_path", default="./data",
                    help="Root directory for data files")
@@ -63,7 +63,7 @@ def parse_args():
                    help="Where to save the trained checkpoint")
     p.add_argument("--no_save", action="store_true",
                    help="Skip saving the checkpoint")
-    return p.parse_args()
+    return p.parse_known_args()[0]
 
 
 def main(ratio_pollution=None, ratio_known_outlier=None, ratio_known_normal=None, seed=None):
@@ -95,7 +95,6 @@ def main(ratio_pollution=None, ratio_known_outlier=None, ratio_known_normal=None
         ratio_known_outlier=args.ratio_known_outlier,
         ratio_pollution=args.ratio_pollution,
         random_state=np.random.RandomState(args.seed),
-        subclasses=args.subclasses,
     )
 
     logger.info("Extracting training / validation / test arrays …")

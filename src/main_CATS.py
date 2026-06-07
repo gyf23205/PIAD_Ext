@@ -171,7 +171,7 @@ def parse_args():
                    help='Where to save the trained checkpoint')
     p.add_argument('--no_save', action='store_true',
                    help='Skip saving the checkpoint')
-    return p.parse_args()
+    return p.parse_known_args()[0]
 
 
 def main(ratio_pollution=None, ratio_known_outlier=None, ratio_known_normal=None, seed=None, dataset=None):

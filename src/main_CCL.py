@@ -31,6 +31,23 @@ from datasets.main import load_dataset
 # Dataset defaults  (mirrors main_CATS.py / main_DASO.py structure)
 # ---------------------------------------------------------------------------
 
+_CCL_HYPERS_DEFAULT = {
+    "h_dims":       [256, 128],
+    "rep_dim":      64,
+    "lr":           0.001,
+    "n_epochs":     300,
+    "batch_size":   64,
+    "lambda1":      0.7,
+    "lambda2":      1.0,
+    "beta_spl":     0.2,
+    "tau_logit":    2.0,
+    "energy_T":     1.0,
+    "energy_zeta":  None,
+    "ema_alpha":    0.9,
+    "tau_c":        0.07,
+    "eval_period":  10,
+}
+
 DATASET_CONFIGS = {
     "Pegasus": {
         "normal_class":             0,
@@ -39,23 +56,7 @@ DATASET_CONFIGS = {
         "ratio_known_normal":       0.2,
         "ratio_known_outlier":      0.3,
         "ratio_pollution":          0.1,
-        "subclasses":               True,
-        "ccl_hypers": {
-            "h_dims":       [256, 128],
-            "rep_dim":      64,
-            "lr":           0.001,
-            "n_epochs":     300,
-            "batch_size":   64,
-            "lambda1":      0.7,
-            "lambda2":      1.0,
-            "beta_spl":     0.2,
-            "tau_logit":    2.0,
-            "energy_T":     1.0,
-            "energy_zeta":  None,   # None = use all unlabeled samples
-            "ema_alpha":    0.9,
-            "tau_c":        0.07,
-            "eval_period":  10,
-        },
+        "ccl_hypers":               dict(_CCL_HYPERS_DEFAULT),
     },
     "ALFA": {
         "normal_class":             0,
@@ -64,23 +65,25 @@ DATASET_CONFIGS = {
         "ratio_known_normal":       0.2,
         "ratio_known_outlier":      0.3,
         "ratio_pollution":          0.1,
-        "subclasses":               True,
-        "ccl_hypers": {
-            "h_dims":       [256, 128],
-            "rep_dim":      64,
-            "lr":           0.001,
-            "n_epochs":     300,
-            "batch_size":   64,
-            "lambda1":      0.7,
-            "lambda2":      1.0,
-            "beta_spl":     0.2,
-            "tau_logit":    2.0,
-            "energy_T":     1.0,
-            "energy_zeta":  None,
-            "ema_alpha":    0.9,
-            "tau_c":        0.07,
-            "eval_period":  10,
-        },
+        "ccl_hypers":               dict(_CCL_HYPERS_DEFAULT),
+    },
+    "spoofing_multi_profile": {
+        "normal_class":             0,
+        "known_outlier_classes":    [1, 2],
+        "n_known_outlier_classes":  2,
+        "ratio_known_normal":       0.2,
+        "ratio_known_outlier":      0.3,
+        "ratio_pollution":          0.1,
+        "ccl_hypers":               dict(_CCL_HYPERS_DEFAULT),
+    },
+    "spoofing_wind": {
+        "normal_class":             0,
+        "known_outlier_classes":    [1, 2],
+        "n_known_outlier_classes":  2,
+        "ratio_known_normal":       0.2,
+        "ratio_known_outlier":      0.3,
+        "ratio_pollution":          0.1,
+        "ccl_hypers":               dict(_CCL_HYPERS_DEFAULT),
     },
 }
 
@@ -125,7 +128,7 @@ def parse_args():
                    help="Where to save the trained checkpoint")
     p.add_argument("--no_save", action="store_true",
                    help="Skip saving the checkpoint")
-    return p.parse_args()
+    return p.parse_known_args()[0]
 
 
 
@@ -172,7 +175,6 @@ def main(ratio_pollution=None, ratio_known_outlier=None, ratio_known_normal=None
         ratio_known_outlier=ratio_known_outlier,
         ratio_pollution=ratio_pollution,
         random_state=np.random.RandomState(args.seed),
-        subclasses=defaults.get("subclasses", True),
     )
 
     logger.info("Extracting training / validation / test arrays ...")
