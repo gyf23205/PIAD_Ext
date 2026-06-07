@@ -226,7 +226,7 @@ class Exp_Anomaly_Detection(Exp_Basic):
                 sample = batch[0].float().to(self.device)
                 sample = self._reshape(sample)
                 outputs = self.model(sample)
-                score = torch.mean(self.anomaly_criterion(sample, outputs), dim=-1)
+                score = self.anomaly_criterion(sample, outputs).mean(dim=(-1, -2))
                 attens_energy.append(score.detach().cpu().numpy())
         train_energy = np.concatenate(attens_energy).reshape(-1)
 
@@ -239,7 +239,7 @@ class Exp_Anomaly_Detection(Exp_Basic):
                 target = batch[1]   # (B, n_ac) multi-hot
                 sample = self._reshape(sample)
                 outputs = self.model(sample)
-                score = torch.mean(self.anomaly_criterion(sample, outputs), dim=-1)
+                score = self.anomaly_criterion(sample, outputs).mean(dim=(-1, -2))
                 attens_energy.append(score.detach().cpu().numpy())
                 test_labels.append(target.numpy())
 
