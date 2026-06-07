@@ -56,6 +56,26 @@ DATASET_CONFIGS = {
         'c_out': 35,
         'seq_len': 25,
     },
+    'spoofing_multi_profile': {
+        'known_outlier_classes': [1, 2],
+        'n_known_outlier_classes': 2,
+        'ratio_known_normal': 0.0,
+        'ratio_known_outlier': 0.0,
+        'ratio_pollution': 0.1,
+        'enc_in': 12,
+        'c_out': 12,
+        'seq_len': 100,
+    },
+    'spoofing_wind': {
+        'known_outlier_classes': [1, 2],
+        'n_known_outlier_classes': 2,
+        'ratio_known_normal': 0.0,
+        'ratio_known_outlier': 0.0,
+        'ratio_pollution': 0.1,
+        'enc_in': 12,
+        'c_out': 12,
+        'seq_len': 100,
+    },
 }
 
 
@@ -114,7 +134,6 @@ class Exp_Anomaly_Detection(Exp_Basic):
             ratio_known_outlier=dcfg['ratio_known_outlier'],
             ratio_pollution=ratio_pollution or dcfg['ratio_pollution'],
             random_state=np.random.RandomState(self.args['seed']),
-            subclasses=True,
         )
         return dataset.loaders(batch_size=self.args['batch_size'])
 
