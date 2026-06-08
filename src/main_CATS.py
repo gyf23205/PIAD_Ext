@@ -198,9 +198,13 @@ def main(ratio_pollution=None, ratio_known_outlier=None, ratio_known_normal=None
         args.known_outlier_class if args.known_outlier_class is not None
         else defaults['known_outlier_classes']
     )
-    ratio_known_normal  = args.ratio_known_normal  or defaults['ratio_known_normal']
-    ratio_known_outlier = args.ratio_known_outlier or defaults['ratio_known_outlier']
-    ratio_pollution     = args.ratio_pollution     or defaults['ratio_pollution']
+    # Use `is not None` (not `or`) so that an explicitly passed 0.0 is respected.
+    ratio_known_normal  = (args.ratio_known_normal  if args.ratio_known_normal  is not None
+                           else defaults['ratio_known_normal'])
+    ratio_known_outlier = (args.ratio_known_outlier if args.ratio_known_outlier is not None
+                           else defaults['ratio_known_outlier'])
+    ratio_pollution     = (args.ratio_pollution     if args.ratio_pollution     is not None
+                           else defaults['ratio_pollution'])
 
     logger.info(f'Loading dataset: {args.dataset}')
     dataset = load_dataset(
@@ -265,8 +269,11 @@ def main(ratio_pollution=None, ratio_known_outlier=None, ratio_known_normal=None
     logger.info('Evaluating on test set ...')
     t1 = time.time()
     y_score = trainer.predict(X_test)
+
     y_pred  = trainer.predict_labels(X_test)
     y_true  = truth_multihot_to_single(y_test)
+    logger.info(f"Score stats — normal: mean={y_score[y_true==0].mean():.3f} std={y_score[y_true==0].std():.3f}  "
+            f"anomaly: mean={y_score[y_true>0].mean():.3f} std={y_score[y_true>0].std():.3f}")
     test_time = time.time() - t1
 
     # Multi-class metrics (uses per-class centroids seeded from labeled anomalies)
@@ -344,9 +351,14 @@ if __name__ == '__main__':
             'batch_size': 512,
         }
     )
-    ratio_pollution, ratio_known_outlier, ratio_known_normal = wandb.config.ratios
-    seed = wandb.config.seed
-    dataset = wandb.config.dataset
-    main(ratio_pollution=ratio_pollution, ratio_known_outlier=ratio_known_outlier,
-         ratio_known_normal=ratio_known_normal, seed=seed, dataset=dataset)
+    if hasattr(wandb.config, 'ratios'):
+        # Running as a wandb sweep agent — ratios/seed/dataset come from sweep config.
+        ratio_pollution, ratio_known_outlier, ratio_known_normal = wandb.config.ratios
+        seed = wandb.config.seed
+        dataset = wandb.config.dataset
+        main(ratio_pollution=ratio_pollution, ratio_known_outlier=ratio_known_outlier,
+             ratio_known_normal=ratio_known_normal, seed=seed, dataset=dataset)
+    else:
+        # Running directly from the command line — use CLI args parsed inside main().
+        main()
 wandb.finish()

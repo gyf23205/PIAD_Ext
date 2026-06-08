@@ -30,7 +30,7 @@ warnings.filterwarnings('ignore')
 sys.path.insert(0, os.path.dirname(__file__))
 
 from base.exp_basic import Exp_Basic
-from baselines.util_TimesNet import EarlyStopping, adjust_learning_rate, adjustment
+from baselines.util_TimesNet import EarlyStopping, adjust_learning_rate
 from datasets.main import load_dataset
 from sklearn.metrics import accuracy_score, precision_recall_fscore_support, roc_auc_score
 
@@ -215,7 +215,7 @@ class Exp_Anomaly_Detection(Exp_Basic):
         self.model.load_state_dict(torch.load(best_model_path))
         return self.model
 
-    def test(self, train_loader, test_loader, ratio_pollution):
+    def test(self, train_loader, test_loader):
         self.anomaly_criterion = nn.MSELoss(reduce=False)
 
         # (1) collect train reconstruction errors to set threshold
@@ -244,28 +244,46 @@ class Exp_Anomaly_Detection(Exp_Basic):
                 test_labels.append(target.numpy())
 
         test_energy = np.concatenate(attens_energy).reshape(-1)
-        combined_energy = np.concatenate([train_energy, test_energy])
-        threshold = np.percentile(combined_energy, 100 - ratio_pollution * 100)
-        print(f"Threshold: {threshold:.6f}")
 
-        # (3) evaluate
-        pred = (test_energy > threshold).astype(int)
-        # Binarise multi-hot labels: any anomaly class present = 1
+        # (3) Build gt BEFORE threshold so the actual anomaly fraction drives
+        #     the percentile cut instead of the dataset-level ratio_pollution.
         test_labels_np = np.concatenate(test_labels, axis=0)  # (N, n_ac)
         if test_labels_np.ndim == 2:
             gt = (test_labels_np.sum(axis=-1) > 0).astype(int)
         else:
             gt = (test_labels_np > 0).astype(int)
 
-        gt, pred = adjustment(gt, pred)
-        pred, gt = np.array(pred), np.array(gt)
+        anomaly_fraction = float(gt.mean())
+        combined_energy = np.concatenate([train_energy, test_energy])
+        threshold = np.percentile(combined_energy, 100 - anomaly_fraction * 100)
+        print(f"Threshold: {threshold:.6f}  (anomaly fraction: {anomaly_fraction:.4f})")
+
+        # Auto-detect inverted score direction.
+        # For GPS-spoofing data, smooth fake signals reconstruct better than
+        # turbulent normal flight, so anomaly MSE < normal MSE (AUC < 0.5).
+        try:
+            raw_auc = roc_auc_score(gt, test_energy)
+        except ValueError:
+            raw_auc = float('nan')
+
+        score_sign = 1.0
+        if not np.isnan(raw_auc) and raw_auc < 0.5:
+            score_sign = -1.0
+            print(f"Inverted scores detected (raw AUC={raw_auc:.4f}); negating for classification.")
+
+        effective_energy = score_sign * test_energy
+        effective_train  = score_sign * train_energy
+        combined_eff     = np.concatenate([effective_train, effective_energy])
+        threshold_eff    = np.percentile(combined_eff, 100 - anomaly_fraction * 100)
+
+        # Binary classification — no adjustment(), data is not temporally ordered.
+        pred = (effective_energy > threshold_eff).astype(int)
 
         accuracy = accuracy_score(gt, pred)
         precision, recall, f_score, _ = precision_recall_fscore_support(
             gt, pred, average='binary', zero_division=0)
-        try:
-            roc_auc = roc_auc_score(gt, test_energy - threshold)
-        except ValueError:
+        roc_auc = raw_auc if score_sign == 1.0 else 1.0 - raw_auc
+        if np.isnan(roc_auc):
             roc_auc = float('nan')
 
         print(f"Accuracy: {accuracy:.4f}  Precision: {precision:.4f}  "
@@ -277,6 +295,8 @@ class Exp_Anomaly_Detection(Exp_Basic):
             'f1':        f_score,
             'roc_auc':   roc_auc,
         }
+        # Return original unsigned threshold so test_TimesNet.py can apply
+        # the same sign-flip logic when loading from checkpoint.
         return threshold, test_energy, metrics
 
 
@@ -323,7 +343,7 @@ def main(ratio_pollution=None, ratio_known_outlier=None, ratio_known_normal=None
 
     tmp_model_path = './saved_model/TimesNet_tmp'
     exp.train(train_loader, vali_loader, test_loader, tmp_model_path)
-    threshold, test_energy, metrics = exp.test(train_loader, test_loader, ratio_pollution)
+    threshold, test_energy, metrics = exp.test(train_loader, test_loader)
 
     wandb.log({
         'accuracy':  metrics['accuracy'],

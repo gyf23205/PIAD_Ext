@@ -45,7 +45,6 @@ def main():
     train_loader, _, test_loader = exp.get_data(args.dataset, args.data_path, ratio_pollution)
 
     # Run test using saved threshold
-    from baselines.util_TimesNet import adjustment
     from sklearn.metrics import accuracy_score, precision_recall_fscore_support, roc_auc_score
     import torch.nn as nn
 
@@ -60,29 +59,37 @@ def main():
             target = batch[1]
             sample = sample.view(sample.size(0), model_args['seq_len'], model_args['enc_in'])
             outputs = exp.model(sample)
-            score = torch.mean(anomaly_criterion(sample, outputs), dim=-1)
+            score = anomaly_criterion(sample, outputs).mean(dim=(-1, -2))
             attens_energy.append(score.detach().cpu().numpy())
             test_labels.append(target.numpy())
 
     test_energy = np.concatenate(attens_energy).reshape(-1)
-    pred = (test_energy > threshold).astype(int)
 
     test_labels_np = np.concatenate(test_labels, axis=0)
     if test_labels_np.ndim == 2:
         gt = (test_labels_np.sum(axis=-1) > 0).astype(int)
     else:
-        gt = test_labels_np.astype(int)
+        gt = (test_labels_np > 0).astype(int)
 
-    gt, pred = adjustment(gt, pred)
-    pred, gt = np.array(pred), np.array(gt)
+    # Auto-detect inverted score direction (same logic as main_TimesNet.py).
+    try:
+        raw_auc = roc_auc_score(gt, test_energy)
+    except ValueError:
+        raw_auc = float('nan')
+
+    score_sign = 1.0
+    if not np.isnan(raw_auc) and raw_auc < 0.5:
+        score_sign = -1.0
+
+    effective_energy    = score_sign * test_energy
+    effective_threshold = score_sign * threshold  # threshold loaded from checkpoint
+
+    pred = (effective_energy > effective_threshold).astype(int)
+    roc_auc = raw_auc if score_sign == 1.0 else 1.0 - raw_auc
 
     accuracy = accuracy_score(gt, pred)
     precision, recall, f_score, _ = precision_recall_fscore_support(
         gt, pred, average='binary', zero_division=0)
-    try:
-        roc_auc = roc_auc_score(gt, test_energy - threshold)
-    except ValueError:
-        roc_auc = float('nan')
 
     width = 40
     print("=" * width)

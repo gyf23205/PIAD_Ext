@@ -234,10 +234,17 @@ class CATSTrainer:
         if best_state is not None:
             self.model.load_state_dict(best_state)
 
-        # SVDD center: mean over all training windows (matches original unsupervised CATS)
         emb_center = self._get_embeddings(X_train)
         single_labels = multihot_to_single(semi_y)
-        center = emb_center.mean(axis=0)
+        # Use labeled-normal embeddings for the SVDD center.  The global mean of
+        # contrastive (instance-discriminative) embeddings does not reliably fall
+        # near the normal cluster, because GCL/TCL push every sample to a unique
+        # location without constraining where the mean ends up.  Anchoring on
+        # labeled normals places the center inside the known normal cluster so
+        # anomaly distance scores have the correct direction (high = anomalous).
+        normal_mask = single_labels == 0
+        center = (emb_center[normal_mask].mean(axis=0)
+                  if normal_mask.any() else emb_center.mean(axis=0))
         eps = 0.1
         center[(np.abs(center) < eps) & (center < 0)] = -eps
         center[(np.abs(center) < eps) & (center > 0)] =  eps
