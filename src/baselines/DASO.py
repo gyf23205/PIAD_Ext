@@ -282,7 +282,7 @@ class DASOTrainer:
         labeled_ds = TensorDataset(X_l, y_l)
         unlabeled_ds = TensorDataset(X_u)
         labeled_loader = DataLoader(labeled_ds, batch_size=self.batch_size,
-                                    shuffle=True, drop_last=True)
+                                    shuffle=True, drop_last=len(labeled_ds) >= self.batch_size)
         # Unlabeled loader uses 2× batch size (common in SSL)
         unlabeled_loader = DataLoader(unlabeled_ds, batch_size=self.batch_size * 2,
                                       shuffle=True, drop_last=True)

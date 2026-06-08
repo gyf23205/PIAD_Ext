@@ -11,7 +11,10 @@ Key differences from the original CATS paper:
   * Contrastive training is label-free (GCL + TCL losses), matching the paper.
   * After training, semi_y is used only to seed the SVDD center (labeled normals)
     and compute per-class centroids (for multi-class predictions).
-  * Anomaly score = squared distance from mean-pooled embedding to SVDD center.
+  * Anomaly score = d_normal - d_anomaly (distance to normal centroid minus minimum
+    distance to any anomaly centroid).  Falls back to -d_normal when no anomaly
+    centroids are available.  This is consistent with predict_labels' nearest-centroid
+    decision and avoids the inversion caused by GCL scattering normals widely.
   * Class prediction = nearest centroid in the embedding space.
 """
 
@@ -261,8 +264,7 @@ class CATSTrainer:
                 ).to(self.device)
 
         # Compute validation AUC
-        val_emb    = self._get_embeddings(X_val)
-        val_scores = np.sum((val_emb - self.svdd_center.cpu().numpy()) ** 2, axis=-1)
+        val_scores = self.predict(X_val)
         y_true_bin = (truth_multihot_to_single(y_val) > 0).astype(int)
         try:
             self.best_val_auc = float(roc_auc_score(y_true_bin, val_scores))
@@ -273,10 +275,28 @@ class CATSTrainer:
         return self.best_val_auc
 
     def predict(self, X_test: np.ndarray) -> np.ndarray:
-        """Return anomaly scores (N,): squared distance to SVDD center."""
-        emb    = self._get_embeddings(X_test)
-        center = self.svdd_center.cpu().numpy()
-        return np.sum((emb - center) ** 2, axis=-1)
+        """Return anomaly scores (N,).
+
+        With anomaly centroids: d_normal - d_anomaly.  Positive = anomalous,
+        consistent with the nearest-centroid decision in predict_labels.
+
+        Without anomaly centroids: -d_normal.  GCL scatters normals widely, so
+        anomalies (which mimic average normal behaviour) end up CLOSER to the
+        normal centroid than real normals, making raw d_normal inverted.
+        Negating restores the correct direction.
+        """
+        emb      = self._get_embeddings(X_test)
+        c_normal = self.svdd_center.cpu().numpy()
+        d_normal = np.sum((emb - c_normal) ** 2, axis=-1)
+
+        anomaly_keys = sorted(k for k in self.centroids if k != 0)
+        if anomaly_keys:
+            c_anomaly = np.stack([self.centroids[k].cpu().numpy() for k in anomaly_keys])
+            d_each    = np.sum((emb[:, None, :] - c_anomaly[None, :, :]) ** 2, axis=-1)
+            d_anomaly = d_each.min(axis=-1)
+            return d_normal - d_anomaly
+        else:
+            return -d_normal
 
     def predict_labels(self, X_test: np.ndarray) -> np.ndarray:
         """Return predicted class indices (N,) via nearest-centroid."""
