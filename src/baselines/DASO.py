@@ -198,7 +198,8 @@ def _weak_aug(x: torch.Tensor) -> torch.Tensor:
 
 def _strong_aug(x: torch.Tensor) -> torch.Tensor:
     noise = 0.05 * torch.randn_like(x)
-    scale = torch.empty(x.size(0), 1, device=x.device).uniform_(0.8, 1.2)
+    scale_shape = (x.size(0),) + (1,) * (x.dim() - 1)
+    scale = torch.empty(scale_shape, device=x.device).uniform_(0.8, 1.2)
     return x * scale + noise
 
 
