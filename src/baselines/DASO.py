@@ -263,7 +263,7 @@ class DASOTrainer:
             "Extract data via dataset.train_set (the Subset), not data_direct()."
         )
 
-        self.input_dim = X_train.shape[1]
+        self.input_dim = int(np.prod(X_train.shape[1:]))
         self.n_classes = semi_y.shape[1] + 1   # anomaly columns + normal class (0)
         device = torch.device(self.device)
 
