@@ -11,10 +11,8 @@ Key differences from the original CATS paper:
   * Contrastive training is label-free (GCL + TCL losses), matching the paper.
   * After training, semi_y is used only to seed the SVDD center (labeled normals)
     and compute per-class centroids (for multi-class predictions).
-  * Anomaly score = d_normal - d_anomaly (distance to normal centroid minus minimum
-    distance to any anomaly centroid).  Falls back to -d_normal when no anomaly
-    centroids are available.  This is consistent with predict_labels' nearest-centroid
-    decision and avoids the inversion caused by GCL scattering normals widely.
+  * Anomaly score = L2 distance from mean-pooled embedding to the centroid of all
+    training latent features (paper eq. 9–10).
   * Class prediction = nearest centroid in the embedding space.
 """
 
@@ -239,18 +237,7 @@ class CATSTrainer:
 
         emb_center = self._get_embeddings(X_train)
         single_labels = multihot_to_single(semi_y)
-        # Use labeled-normal embeddings for the SVDD center.  The global mean of
-        # contrastive (instance-discriminative) embeddings does not reliably fall
-        # near the normal cluster, because GCL/TCL push every sample to a unique
-        # location without constraining where the mean ends up.  Anchoring on
-        # labeled normals places the center inside the known normal cluster so
-        # anomaly distance scores have the correct direction (high = anomalous).
-        normal_mask = single_labels == 0
-        center = (emb_center[normal_mask].mean(axis=0)
-                  if normal_mask.any() else emb_center.mean(axis=0))
-        eps = 0.1
-        center[(np.abs(center) < eps) & (center < 0)] = -eps
-        center[(np.abs(center) < eps) & (center > 0)] =  eps
+        center = emb_center.mean(axis=0)   # paper eq. 10: centroid of all training latents
         self.svdd_center = torch.tensor(center, dtype=torch.float32).to(self.device)
 
         # Per-class centroids for multi-class prediction
@@ -275,28 +262,10 @@ class CATSTrainer:
         return self.best_val_auc
 
     def predict(self, X_test: np.ndarray) -> np.ndarray:
-        """Return anomaly scores (N,).
-
-        With anomaly centroids: d_normal - d_anomaly.  Positive = anomalous,
-        consistent with the nearest-centroid decision in predict_labels.
-
-        Without anomaly centroids: -d_normal.  GCL scatters normals widely, so
-        anomalies (which mimic average normal behaviour) end up CLOSER to the
-        normal centroid than real normals, making raw d_normal inverted.
-        Negating restores the correct direction.
-        """
-        emb      = self._get_embeddings(X_test)
-        c_normal = self.svdd_center.cpu().numpy()
-        d_normal = np.sum((emb - c_normal) ** 2, axis=-1)
-
-        anomaly_keys = sorted(k for k in self.centroids if k != 0)
-        if anomaly_keys:
-            c_anomaly = np.stack([self.centroids[k].cpu().numpy() for k in anomaly_keys])
-            d_each    = np.sum((emb[:, None, :] - c_anomaly[None, :, :]) ** 2, axis=-1)
-            d_anomaly = d_each.min(axis=-1)
-            return d_normal - d_anomaly
-        else:
-            return -d_normal
+        """Return anomaly scores (N,): L2 distance to training centroid (paper eq. 9)."""
+        emb    = self._get_embeddings(X_test)
+        center = self.svdd_center.cpu().numpy()
+        return np.sum((emb - center) ** 2, axis=-1)
 
     def predict_labels(self, X_test: np.ndarray) -> np.ndarray:
         """Return predicted class indices (N,) via nearest-centroid."""
