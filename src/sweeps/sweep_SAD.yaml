@@ -3,10 +3,16 @@ method: grid
 project: PIAD_Ext
 name: DeepSAD_sweep
 parameters:
+  dataset:
+    values:
+      - spoofing_multi_profile
+      - ALFA
+      - Pegasus
+      - spoofing_wind
   ratios:
     values:
       - [0.01, 0.0, 0.01]
-      - [0.05, 0.1, 0.2]
-      - [0.1,  0.3, 0.2]
+      - [0.05, 0.05, 0.05]
+      - [0.05,  0.1, 0.1]
   seed:
-    values: [1, 2, 3, 4, 5]
+    values: [42, 43, 44]

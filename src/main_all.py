@@ -151,7 +151,7 @@ if __name__ == '__main__':
     torch.backends.cudnn.benchmark = False
     os.environ['PYTHONHASHSEED'] = str(seed)
 
-    dataset_name = 'spoofing_multi_profile'
+    dataset_name = 'spoofing_wind'
     net_name = 'spoof_mlp'
     data_path = './data'
     lr = 0.0001
@@ -163,7 +163,7 @@ if __name__ == '__main__':
     pretrain = False
     tau = 0.5
     aug_mode = 'gaussian'   # 'gaussian' | 'nngmix' | 'both'
-    save = True
+    save = False
     normal_class = 0
 
     coeff = {
@@ -189,7 +189,7 @@ if __name__ == '__main__':
     wandb.login()
     wandb.init(
         project='PIAD_Ext',
-        name='PCAD_spoofing_multi_anomalies',
+        name='PCAD_spoofing_wind',
         config={
             'dataset': dataset_name,
             'lr': lr,
@@ -202,10 +202,10 @@ if __name__ == '__main__':
         }
     )
 
-    # ratio_pollution, ratio_known_outlier, ratio_known_normal = wandb.config.ratios
-    # seed = wandb.config.seed
-    ratio_pollution, ratio_known_outlier, ratio_known_normal = 0.05, 0.05, 0.05
-    seed = 43
+    ratio_pollution, ratio_known_outlier, ratio_known_normal = wandb.config.ratios
+    seed = wandb.config.seed
+    # ratio_pollution, ratio_known_outlier, ratio_known_normal = 0.05, 0.05, 0.05
+    # seed = 43
     rko = str(ratio_known_outlier).replace('.', '')
     rp  = str(ratio_pollution).replace('.', '')
     known_outlier_classes = [1] if ratio_known_outlier > 0 else []
