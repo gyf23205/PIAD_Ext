@@ -20,7 +20,7 @@ import wandb
 sys.path.insert(0, os.path.join(os.path.dirname(__file__)))
 
 from baselines.DASO import DASOTrainer
-from utils.metrics import compute_anomaly_metrics, truth_multihot_to_single
+from utils.metrics import compute_anomaly_metrics, truth_multihot_to_single, compute_affiliation_metrics
 from datasets.main import load_dataset
 from utils.data import extract_numpy
 
@@ -147,6 +147,10 @@ def main(ratio_pollution=None, ratio_known_outlier=None, ratio_known_normal=None
 
     stats = compute_anomaly_metrics(y_true, y_pred, y_score)
 
+    y_true_bin = (y_true > 0).astype(int)
+    y_pred_bin = (y_pred > 0).astype(int)
+    aff = compute_affiliation_metrics(y_true_bin, y_pred_bin)
+
     # ---- Print results (same table format as daso_timeseries/test_daso.py) ----
     width = 35
     print("=" * width)
@@ -162,6 +166,9 @@ def main(ratio_pollution=None, ratio_known_outlier=None, ratio_known_normal=None
     print(f"  F1 (weighted)  : {stats['f1_weighted']:.4f}")
     print(f"  Accuracy       : {stats['accuracy']:.4f}")
     print(f"  Anomaly Recall : {stats['anomaly_recall']:.4f}")
+    print(f"  P_aff (UAff)   : {aff['p_aff']:.4f}")
+    print(f"  R_aff (NAff)   : {aff['r_aff']:.4f}")
+    print(f"  F_aff          : {aff['f_aff']:.4f}")
     print("=" * width)
 
     wandb.log({
@@ -171,6 +178,9 @@ def main(ratio_pollution=None, ratio_known_outlier=None, ratio_known_normal=None
         'f1_weighted':    stats['f1_weighted'],
         'accuracy':       stats['accuracy'],
         'anomaly_recall': stats['anomaly_recall'],
+        'p_aff':          aff['p_aff'],
+        'r_aff':          aff['r_aff'],
+        'f_aff':          aff['f_aff'],
     })
 
 

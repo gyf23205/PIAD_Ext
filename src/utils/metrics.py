@@ -76,3 +76,32 @@ def compute_anomaly_metrics(y_true: np.ndarray, y_pred: np.ndarray,
         "accuracy": acc,
         "anomaly_recall": anomaly_recall,
     }
+
+
+def compute_affiliation_metrics(y_true_bin: np.ndarray, y_pred_bin: np.ndarray) -> dict:
+    """Compute affiliation precision/recall/F1 (Huet et al. NeurIPS 2022).
+
+    Used by the SimAD paper as UAff/NAff.  Rewards predictions that are
+    temporally close to — not just overlapping with — actual anomaly events.
+
+    Args:
+        y_true_bin: (n,) binary int array — 1 = anomaly, 0 = normal
+        y_pred_bin: (n,) binary int array — predicted labels
+
+    Returns dict: p_aff, r_aff, f_aff
+    """
+    from affiliation.generics import convert_vector_to_events
+    from affiliation.metrics import pr_from_events
+
+    Trange = (0, len(y_true_bin))
+    events_gt   = convert_vector_to_events(y_true_bin.tolist())
+    events_pred = convert_vector_to_events(y_pred_bin.tolist())
+
+    if not events_gt:
+        return {"p_aff": float("nan"), "r_aff": float("nan"), "f_aff": float("nan")}
+
+    result = pr_from_events(events_pred, events_gt, Trange)
+    p = float(result["precision"])
+    r = float(result["recall"])
+    f = 2 * p * r / (p + r) if (p + r) > 0 else 0.0
+    return {"p_aff": p, "r_aff": r, "f_aff": f}

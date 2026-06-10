@@ -134,6 +134,7 @@ unicodedata2 @ file:///croot/unicodedata2_1713212950228/work
 urllib3==2.1.0
 vispy==0.14.3
 wandb==0.17.5
+affiliation @ git+https://github.com/ahstat/affiliation-metrics-py.git
 wcwidth==0.2.13
 webencodings==0.5.1
 yarg==0.1.9

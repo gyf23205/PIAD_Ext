@@ -33,6 +33,7 @@ from base.exp_basic import Exp_Basic
 from baselines.util_TimesNet import EarlyStopping, adjust_learning_rate
 from datasets.main import load_dataset
 from sklearn.metrics import accuracy_score, precision_recall_fscore_support, roc_auc_score
+from utils.metrics import compute_affiliation_metrics
 
 
 DATASET_CONFIGS = {
@@ -286,14 +287,19 @@ class Exp_Anomaly_Detection(Exp_Basic):
         if np.isnan(roc_auc):
             roc_auc = float('nan')
 
+        aff = compute_affiliation_metrics(gt, pred)
         print(f"Accuracy: {accuracy:.4f}  Precision: {precision:.4f}  "
               f"Recall: {recall:.4f}  F-score: {f_score:.4f}  ROC AUC: {roc_auc:.4f}")
+        print(f"P_aff (UAff): {aff['p_aff']:.4f}  R_aff (NAff): {aff['r_aff']:.4f}  F_aff: {aff['f_aff']:.4f}")
         metrics = {
             'accuracy':  accuracy,
             'precision': precision,
             'recall':    recall,
             'f1':        f_score,
             'roc_auc':   roc_auc,
+            'p_aff':     aff['p_aff'],
+            'r_aff':     aff['r_aff'],
+            'f_aff':     aff['f_aff'],
         }
         # Return original unsigned threshold so test_TimesNet.py can apply
         # the same sign-flip logic when loading from checkpoint.
@@ -351,6 +357,9 @@ def main(ratio_pollution=None, ratio_known_outlier=None, ratio_known_normal=None
         'recall':    metrics['recall'],
         'f1':        metrics['f1'],
         'roc_auc':   metrics['roc_auc'],
+        'p_aff':     metrics['p_aff'],
+        'r_aff':     metrics['r_aff'],
+        'f_aff':     metrics['f_aff'],
     })
 
     if not args.no_save:

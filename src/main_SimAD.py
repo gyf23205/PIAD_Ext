@@ -1,13 +1,13 @@
 """
-Entry point for the CATS semi-supervised baseline.
+Entry point for the SimAD semi-supervised baseline.
 
-CATS: Contrastive learning for Anomaly detection in Time Series
-(IEEE BigData 2024, doi:10.1109/BigData62323.2024.10825476)
+SimAD: Simple Dissimilarity-Based Approach for Time-Series Anomaly Detection
+(IEEE TNNLS 2025)
 
 Usage examples:
-  python src/main_CATS.py --dataset Pegasus
-  python src/main_CATS.py --dataset ALFA --encoder_type mlp
-  python src/main_CATS.py --dataset Pegasus --n_epochs 200 --save_path ./saved_model/cats_pegasus.pt
+  python src/main_SimAD.py --dataset Pegasus
+  python src/main_SimAD.py --dataset ALFA --d_model 64 --n_layers 2
+  python src/main_SimAD.py --dataset spoofing_wind --n_epochs 200 --save_path ./saved_model/simad_wind.pt
 """
 
 import argparse
@@ -19,11 +19,10 @@ import wandb
 
 import numpy as np
 import torch
-from sklearn.metrics import f1_score, matthews_corrcoef
+from sklearn.metrics import f1_score, matthews_corrcoef, roc_auc_score
 sys.path.insert(0, os.path.dirname(__file__))
 
-import setting
-from baselines.CATS import CATSTrainer
+from baselines.SimAD import SimADTrainer
 from utils.metrics import compute_anomaly_metrics, truth_multihot_to_single, compute_affiliation_metrics
 from utils.data import extract_numpy
 from datasets.main import load_dataset
@@ -41,10 +40,9 @@ def _best_binary_threshold(scores: np.ndarray, y_true_bin: np.ndarray) -> float:
     return best_t
 
 
-# Dataset configs mirror those in main_all.py / test_physical.py / main_NNGMix.py
 DATASET_CONFIGS = {
     'Pegasus': {
-        'net_name': 'cats_ts2vec_pegasus',
+        'net_name': 'simad_pegasus',
         'win_size': 20,
         'n_features': 44,
         'normal_class': 0,
@@ -53,21 +51,23 @@ DATASET_CONFIGS = {
         'ratio_known_outlier': 0.3,
         'ratio_known_normal': 0.2,
         'ratio_pollution': 0.1,
-        'setting_hypers': [256, 512, 64, 2.0],   # hd1, hd2, rep, T
-        'cats_hypers': {
-            'coef_gcl': 0.5,
-            'coef_tcl': 0.5,
-            'lr': 0.001,
+        'simad_hypers': {
+            'patch_size': 4,       # 20 = 5 * 4
+            'd_model': 128,
+            'n_heads': 4,
+            'n_layers': 3,
+            'n_patch_emb': 50,
+            'noise_level': 0.3,
+            'beta_max': 0.1,
+            'n_warmup_epochs': 20,
+            'lr': 1e-3,
             'n_epochs': 100,
-            'patience': 50,
-            'batch_size': 512,
-            'temperature': 0.1,
-            'gamma': 1.0,
-            'margin': 5.0,
+            'batch_size': 256,
+            'patience': 30,
         },
     },
     'ALFA': {
-        'net_name': 'cats_ts2vec_alfa',
+        'net_name': 'simad_alfa',
         'win_size': 25,
         'n_features': 35,
         'normal_class': 0,
@@ -76,21 +76,23 @@ DATASET_CONFIGS = {
         'ratio_known_outlier': 0.3,
         'ratio_known_normal': 0.2,
         'ratio_pollution': 0.1,
-        'setting_hypers': [256, 512, 64, 2.0],
-        'cats_hypers': {
-            'coef_gcl': 0.5,
-            'coef_tcl': 0.5,
-            'lr': 0.001,
+        'simad_hypers': {
+            'patch_size': 5,       # 25 = 5 * 5
+            'd_model': 128,
+            'n_heads': 4,
+            'n_layers': 3,
+            'n_patch_emb': 50,
+            'noise_level': 0.3,
+            'beta_max': 0.1,
+            'n_warmup_epochs': 20,
+            'lr': 1e-3,
             'n_epochs': 100,
-            'patience': 50,
-            'batch_size': 512,
-            'temperature': 0.1,
-            'gamma': 1.0,
-            'margin': 5.0,
+            'batch_size': 256,
+            'patience': 30,
         },
     },
     'spoofing_multi_profile': {
-        'net_name': 'cats_ts2vec_spoofing_mp',
+        'net_name': 'simad_spoofing_mp',
         'win_size': 100,
         'n_features': 12,
         'normal_class': 0,
@@ -99,21 +101,23 @@ DATASET_CONFIGS = {
         'ratio_known_outlier': 0.3,
         'ratio_known_normal': 0.2,
         'ratio_pollution': 0.1,
-        'setting_hypers': [256, 512, 64, 2.0],
-        'cats_hypers': {
-            'coef_gcl': 0.5,
-            'coef_tcl': 0.5,
-            'lr': 0.001,
+        'simad_hypers': {
+            'patch_size': 10,      # 100 = 10 * 10
+            'd_model': 64,
+            'n_heads': 4,
+            'n_layers': 3,
+            'n_patch_emb': 50,
+            'noise_level': 0.3,
+            'beta_max': 0.1,
+            'n_warmup_epochs': 20,
+            'lr': 1e-3,
             'n_epochs': 100,
-            'patience': 50,
-            'batch_size': 512,
-            'temperature': 0.1,
-            'gamma': 1.0,
-            'margin': 5.0,
+            'batch_size': 256,
+            'patience': 30,
         },
     },
     'spoofing_wind': {
-        'net_name': 'cats_ts2vec_spoofing_wind',
+        'net_name': 'simad_spoofing_wind',
         'win_size': 100,
         'n_features': 12,
         'normal_class': 0,
@@ -122,59 +126,58 @@ DATASET_CONFIGS = {
         'ratio_known_outlier': 0.3,
         'ratio_known_normal': 0.2,
         'ratio_pollution': 0.1,
-        'setting_hypers': [256, 512, 64, 2.0],
-        'cats_hypers': {
-            'coef_gcl': 0.5,
-            'coef_tcl': 0.5,
-            'lr': 0.001,
+        'simad_hypers': {
+            'patch_size': 10,      # 100 = 10 * 10
+            'd_model': 64,
+            'n_heads': 4,
+            'n_layers': 3,
+            'n_patch_emb': 50,
+            'noise_level': 0.3,
+            'beta_max': 0.1,
+            'n_warmup_epochs': 20,
+            'lr': 1e-3,
             'n_epochs': 100,
-            'patience': 50,
-            'batch_size': 512,
-            'temperature': 0.1,
-            'gamma': 1.0,
-            'margin': 5.0,
+            'batch_size': 256,
+            'patience': 30,
         },
     },
 }
 
 
 def parse_args():
-    p = argparse.ArgumentParser(description='CATS contrastive baseline for PIAD_Ext')
+    p = argparse.ArgumentParser(description='SimAD anomaly detection baseline for PIAD_Ext')
     # Dataset
     p.add_argument('--dataset', default='Pegasus', choices=list(DATASET_CONFIGS),
                    help='Dataset name')
     p.add_argument('--data_path', default='./data',
                    help='Root directory for data files')
-    p.add_argument('--known_outlier_class', type=int, nargs='+', default=None,
-                   help='Known anomaly class indices (overrides dataset default)')
+    p.add_argument('--known_outlier_class', type=int, nargs='+', default=None)
     p.add_argument('--ratio_known_normal',  type=float, default=None)
     p.add_argument('--ratio_known_outlier', type=float, default=None)
     p.add_argument('--ratio_pollution',     type=float, default=None)
-    p.add_argument('--seed', type=int, default=4)
-    # Model architecture
-    p.add_argument('--encoder_type', default=None, choices=['ts2vec', 'mlp'],
-                   help='CATS encoder backbone (overrides dataset default)')
-    p.add_argument('--output_size', type=int, default=None,
-                   help='Encoder embedding dim (default: setting.rep from dataset config)')
+    p.add_argument('--seed', type=int, default=42)
+    # Architecture
+    p.add_argument('--patch_size',      type=int,   default=None)
+    p.add_argument('--d_model',         type=int,   default=None)
+    p.add_argument('--n_heads',         type=int,   default=None)
+    p.add_argument('--n_layers',        type=int,   default=None)
+    p.add_argument('--n_patch_emb',     type=int,   default=None)
     # Training
-    p.add_argument('--n_epochs',    type=int,   default=None)
-    p.add_argument('--batch_size',  type=int,   default=None)
-    p.add_argument('--lr',          type=float, default=None)
-    p.add_argument('--patience',    type=int,   default=None)
-    p.add_argument('--coef_gcl',    type=float, default=None)
-    p.add_argument('--coef_tcl',    type=float, default=None)
-    p.add_argument('--temperature', type=float, default=None)
-    p.add_argument('--gamma',       type=float, default=None)
-    p.add_argument('--margin',      type=float, default=None)
+    p.add_argument('--noise_level',     type=float, default=None)
+    p.add_argument('--beta_max',        type=float, default=None)
+    p.add_argument('--n_warmup_epochs', type=int,   default=None)
+    p.add_argument('--n_epochs',        type=int,   default=None)
+    p.add_argument('--batch_size',      type=int,   default=None)
+    p.add_argument('--lr',              type=float, default=None)
+    p.add_argument('--patience',        type=int,   default=None)
     # Output
-    p.add_argument('--save_path', default='./saved_model/cats_checkpoint.pt',
-                   help='Where to save the trained checkpoint')
-    p.add_argument('--no_save', action='store_true',
-                   help='Skip saving the checkpoint')
+    p.add_argument('--save_path', default='./saved_model/simad_checkpoint.pt')
+    p.add_argument('--no_save', action='store_true')
     return p.parse_known_args()[0]
 
 
-def main(ratio_pollution=None, ratio_known_outlier=None, ratio_known_normal=None, seed=None, dataset=None):
+def main(ratio_pollution=None, ratio_known_outlier=None, ratio_known_normal=None,
+         seed=None, dataset=None):
     args = parse_args()
     if ratio_pollution     is not None: args.ratio_pollution     = ratio_pollution
     if ratio_known_outlier is not None: args.ratio_known_outlier = ratio_known_outlier
@@ -185,20 +188,17 @@ def main(ratio_pollution=None, ratio_known_outlier=None, ratio_known_normal=None
     torch.manual_seed(args.seed)
     np.random.seed(args.seed)
 
-    logging.basicConfig(
-        level=logging.INFO,
-        format='%(asctime)s  %(levelname)s  %(message)s',
-    )
+    logging.basicConfig(level=logging.INFO,
+                        format='%(asctime)s  %(levelname)s  %(message)s')
     logger = logging.getLogger()
 
     defaults = DATASET_CONFIGS[args.dataset]
-    setting.init(defaults['setting_hypers'])
+    h        = defaults['simad_hypers']
 
     known_outlier_class = tuple(
         args.known_outlier_class if args.known_outlier_class is not None
         else defaults['known_outlier_classes']
     )
-    # Use `is not None` (not `or`) so that an explicitly passed 0.0 is respected.
     ratio_known_normal  = (args.ratio_known_normal  if args.ratio_known_normal  is not None
                            else defaults['ratio_known_normal'])
     ratio_known_outlier = (args.ratio_known_outlier if args.ratio_known_outlier is not None
@@ -207,7 +207,7 @@ def main(ratio_pollution=None, ratio_known_outlier=None, ratio_known_normal=None
                            else defaults['ratio_pollution'])
 
     logger.info(f'Loading dataset: {args.dataset}')
-    dataset = load_dataset(
+    ds = load_dataset(
         dataset_name=args.dataset,
         data_path=args.data_path,
         normal_class=defaults['normal_class'],
@@ -219,44 +219,38 @@ def main(ratio_pollution=None, ratio_known_outlier=None, ratio_known_normal=None
         random_state=np.random.RandomState(args.seed),
     )
 
-    logger.info('Extracting training / validation / test arrays ...')
-    X_train, _,     semi_y = extract_numpy(dataset.train_set)
-    X_val,   y_val, _      = extract_numpy(dataset.val_set)
-    X_test,  y_test, _     = extract_numpy(dataset.test_set)
+    X_train, _,     semi_y = extract_numpy(ds.train_set)
+    X_val,   y_val, _      = extract_numpy(ds.val_set)
+    X_test,  y_test, _     = extract_numpy(ds.test_set)
+    logger.info(f'  Train: {X_train.shape}  Val: {X_val.shape}  Test: {X_test.shape}')
 
-    logger.info(f'  Train subset : {X_train.shape}')
-    logger.info(f'  Val          : {X_val.shape}')
-    logger.info(f'  Test         : {X_test.shape}')
-
-    # Build trainer config — CLI overrides dataset defaults
-    h = defaults['cats_hypers']
-    output_size = args.output_size if args.output_size is not None else defaults['setting_hypers'][2]
-    encoder_type = args.encoder_type if args.encoder_type is not None else (
-        'ts2vec' if 'ts2vec' in defaults['net_name'] else 'mlp'
-    )
+    # Build config — CLI overrides dataset defaults
+    def _pick(attr, key):
+        v = getattr(args, attr)
+        return v if v is not None else h[key]
 
     cfg = {
-        'win_size':     defaults['win_size'],
-        'n_features':   defaults['n_features'],
-        'output_size':  output_size,
-        'proj_size':    output_size // 2,
-        'encoder_type': encoder_type,
-        'lr':           args.lr          if args.lr          is not None else h['lr'],
-        'n_epochs':     args.n_epochs    if args.n_epochs    is not None else h['n_epochs'],
-        'batch_size':   args.batch_size  if args.batch_size  is not None else h['batch_size'],
-        'patience':     args.patience    if args.patience    is not None else h['patience'],
-        'coef_gcl':     args.coef_gcl    if args.coef_gcl    is not None else h['coef_gcl'],
-        'coef_tcl':     args.coef_tcl    if args.coef_tcl    is not None else h['coef_tcl'],
-        'temperature':  args.temperature if args.temperature is not None else h['temperature'],
-        'gamma':        args.gamma       if args.gamma       is not None else h['gamma'],
-        'margin':       args.margin      if args.margin      is not None else h['margin'],
-        'weight_decay': 1e-5,
-        'device': 'cuda' if torch.cuda.is_available() else 'cpu',
+        'win_size':        defaults['win_size'],
+        'n_features':      defaults['n_features'],
+        'patch_size':      _pick('patch_size',      'patch_size'),
+        'd_model':         _pick('d_model',          'd_model'),
+        'n_heads':         _pick('n_heads',          'n_heads'),
+        'n_layers':        _pick('n_layers',         'n_layers'),
+        'n_patch_emb':     _pick('n_patch_emb',      'n_patch_emb'),
+        'noise_level':     _pick('noise_level',      'noise_level'),
+        'beta_max':        _pick('beta_max',          'beta_max'),
+        'n_warmup_epochs': _pick('n_warmup_epochs',  'n_warmup_epochs'),
+        'lr':              _pick('lr',               'lr'),
+        'n_epochs':        _pick('n_epochs',         'n_epochs'),
+        'batch_size':      _pick('batch_size',       'batch_size'),
+        'patience':        _pick('patience',         'patience'),
+        'weight_decay':    1e-5,
+        'device':          'cuda' if torch.cuda.is_available() else 'cpu',
     }
 
-    trainer = CATSTrainer(cfg)
+    trainer = SimADTrainer(cfg)
 
-    logger.info('Training CATS ...')
+    logger.info('Training SimAD ...')
     t0 = time.time()
     best_auc = trainer.fit(X_train, semi_y, X_val, y_val)
     train_time = time.time() - t0
@@ -269,17 +263,17 @@ def main(ratio_pollution=None, ratio_known_outlier=None, ratio_known_normal=None
     logger.info('Evaluating on test set ...')
     t1 = time.time()
     y_score = trainer.predict(X_test)
-
     y_pred  = trainer.predict_labels(X_test)
     y_true  = truth_multihot_to_single(y_test)
-    logger.info(f"Score stats — normal: mean={y_score[y_true==0].mean():.3f} std={y_score[y_true==0].std():.3f}  "
-            f"anomaly: mean={y_score[y_true>0].mean():.3f} std={y_score[y_true>0].std():.3f}")
     test_time = time.time() - t1
 
-    # Multi-class metrics (uses per-class centroids seeded from labeled anomalies)
+    logger.info(f"Score stats — normal: mean={y_score[y_true==0].mean():.3f}"
+                f"  anomaly: mean={y_score[y_true>0].mean():.3f}")
+
+    # Multi-class metrics (binary predict_labels → anomaly class 1 only)
     stats = compute_anomaly_metrics(y_true, y_pred, y_score)
 
-    # Binary metrics — purely unsupervised: threshold chosen on validation set only
+    # Binary metrics — threshold from validation set
     val_score    = trainer.predict(X_val)
     y_val_true   = truth_multihot_to_single(y_val)
     val_true_bin = (y_val_true > 0).astype(int)
@@ -287,7 +281,6 @@ def main(ratio_pollution=None, ratio_known_outlier=None, ratio_known_normal=None
     y_true_bin   = (y_true > 0).astype(int)
     y_pred_bin   = (y_score >= threshold).astype(int)
 
-    from sklearn.metrics import roc_auc_score
     try:
         bin_auc = float(roc_auc_score(y_true_bin, y_score))
     except ValueError:
@@ -296,32 +289,32 @@ def main(ratio_pollution=None, ratio_known_outlier=None, ratio_known_normal=None
     bin_mcc = float(matthews_corrcoef(y_true_bin, y_pred_bin))
     bin_acc = float(np.mean(y_true_bin == y_pred_bin))
     anomaly_mask = y_true_bin == 1
-    bin_recall = (float(y_pred_bin[anomaly_mask].sum() / anomaly_mask.sum())
-                  if anomaly_mask.any() else float('nan'))
+    bin_recall   = (float(y_pred_bin[anomaly_mask].sum() / anomaly_mask.sum())
+                    if anomaly_mask.any() else float('nan'))
 
+    # Affiliation metrics
     aff = compute_affiliation_metrics(y_true_bin, y_pred_bin)
 
     width = 40
     print('=' * width)
-    print('    CATS Test Results')
+    print('    SimAD Test Results')
     print('=' * width)
     print(f'  Dataset      : {args.dataset}')
-    print(f'  Encoder      : {encoder_type}')
     print(f'  Test samples : {len(y_true)}')
     print(f'  Train time   : {train_time:.1f}s')
     print(f'  Test time    : {test_time:.3f}s')
     print('-' * width)
-    print('  -- Binary (unsupervised, threshold from val) --')
+    print('  -- Binary (threshold from val) --')
     print(f'  AUC            : {bin_auc:.4f}')
     print(f'  F1 (binary)    : {bin_f1:.4f}')
-    print(f'  MCC (binary)   : {bin_mcc:.4f}')
+    print(f'  MCC            : {bin_mcc:.4f}')
     print(f'  Accuracy       : {bin_acc:.4f}')
     print(f'  Anomaly Recall : {bin_recall:.4f}')
     print(f'  P_aff (UAff)   : {aff["p_aff"]:.4f}')
     print(f'  R_aff (NAff)   : {aff["r_aff"]:.4f}')
     print(f'  F_aff          : {aff["f_aff"]:.4f}')
     print('-' * width)
-    print('  -- Multi-class (semi-supervised, centroid per class) --')
+    print('  -- Multi-class --')
     print(f'  AUC            : {stats["auc"]:.4f}')
     print(f'  F1 (macro)     : {stats["f1_macro"]:.4f}')
     print(f'  F1 (weighted)  : {stats["f1_weighted"]:.4f}')
@@ -351,22 +344,23 @@ if __name__ == '__main__':
     wandb.login()
     wandb.init(
         project='PIAD_Ext',
-        name='CATS',
+        name='SimAD',
         config={
-            'encoder_type': 'ts2vec',
-            'lr': 0.001,
+            'patch_size': 4,
+            'd_model': 128,
+            'n_heads': 4,
+            'n_layers': 3,
+            'lr': 1e-3,
             'n_epochs': 100,
-            'batch_size': 512,
+            'batch_size': 256,
         }
     )
     if hasattr(wandb.config, 'ratios'):
-        # Running as a wandb sweep agent — ratios/seed/dataset come from sweep config.
         ratio_pollution, ratio_known_outlier, ratio_known_normal = wandb.config.ratios
-        seed = wandb.config.seed
+        seed    = wandb.config.seed
         dataset = wandb.config.dataset
         main(ratio_pollution=ratio_pollution, ratio_known_outlier=ratio_known_outlier,
              ratio_known_normal=ratio_known_normal, seed=seed, dataset=dataset)
     else:
-        # Running directly from the command line — use CLI args parsed inside main().
         main()
 wandb.finish()
