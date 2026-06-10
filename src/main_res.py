@@ -6,8 +6,10 @@ from datetime import datetime
 import wandb
 import setting
 
+from sklearn.metrics import matthews_corrcoef
 from utils.config import Config
 from utils.visualization.plot_images_grid import plot_images_grid
+from utils.metrics import compute_affiliation_metrics
 from DeepSAD import DeepSAD
 from datasets.main import load_dataset
 import os
@@ -149,6 +151,70 @@ def main(dataset_name, net_name, xp_path, data_path, load_config=None, load_mode
 
     # Test model
     deepSAD.test_physical(dataset, device=device, n_jobs_dataloader=n_jobs_dataloader) # Need to comment this line if want to save the pred branch and also the end of train_physical
+
+    # --- Compute standardized evaluation metrics ---
+    trainer    = deepSAD.trainer
+    labels_bin = trainer.labels_bin
+    y_pred_bin = trainer.y_pred_bin
+
+    test_auc    = float(deepSAD.results['test_auc'])
+    f1_macro    = float(deepSAD.results['test_f1_macro_mh'])
+    f1_weighted = float(deepSAD.results['test_f1_weighted_mh'])
+    mh_acc      = float(deepSAD.results['test_hamming_acc'])
+    mh_recall   = float(deepSAD.results['test_mh_recall'])
+    bin_f1      = float(deepSAD.results['test_f1_binary'])
+    bin_acc     = float(deepSAD.results['test_acc_binary'])
+    bin_recall  = float(deepSAD.results['test_recall_binary'])
+    mcc         = float(matthews_corrcoef(labels_bin, y_pred_bin))
+    aff         = compute_affiliation_metrics(labels_bin, y_pred_bin)
+    p_aff, r_aff, f_aff = aff['p_aff'], aff['r_aff'], aff['f_aff']
+
+    def _fmt(v):
+        try:
+            return 'N/A' if np.isnan(v) else f'{v:.4f}'
+        except (TypeError, ValueError):
+            return f'{v:.4f}'
+
+    W = 46
+    print('=' * W)
+    print('    DeepSAD-Physical Test Results')
+    print('=' * W)
+    print(f'  Dataset      : {dataset_name}')
+    print(f'  Test samples : {len(labels_bin)}')
+    print('-' * W)
+    print('  -- Multi-hot --')
+    print(f'  F1 macro      : {_fmt(f1_macro)}')
+    print(f'  F1 weighted   : {_fmt(f1_weighted)}')
+    print(f'  MH accuracy   : {_fmt(mh_acc)}')
+    print(f'  MH recall     : {_fmt(mh_recall)}')
+    print('-' * W)
+    print('  -- Binary --')
+    print(f'  AUC           : {_fmt(test_auc)}')
+    print(f'  F1            : {_fmt(bin_f1)}')
+    print(f'  Accuracy      : {_fmt(bin_acc)}')
+    print(f'  Recall        : {_fmt(bin_recall)}')
+    print(f'  MCC           : {_fmt(mcc)}')
+    print('-' * W)
+    print('  -- Affiliation --')
+    print(f'  P_aff (UAff)  : {_fmt(p_aff)}')
+    print(f'  R_aff (NAff)  : {_fmt(r_aff)}')
+    print(f'  F_aff         : {_fmt(f_aff)}')
+    print('=' * W)
+
+    wandb.log({
+        'test_auc':     test_auc,
+        'f1_macro':     f1_macro,
+        'f1_weighted':  f1_weighted,
+        'mh_acc':       mh_acc,
+        'mh_recall':    mh_recall,
+        'bin_f1':       bin_f1,
+        'bin_acc':      bin_acc,
+        'bin_recall':   bin_recall,
+        'mcc':          mcc,
+        'p_aff':        p_aff,
+        'r_aff':        r_aff,
+        'f_aff':        f_aff,
+    })
 
     # Save results, model, and configuration
     deepSAD.save_results(export_json=model_path + f'/results_physical_res.json')

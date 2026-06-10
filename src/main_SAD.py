@@ -7,8 +7,10 @@ import os
 from datetime import datetime
 import setting
 
+from sklearn.metrics import f1_score, matthews_corrcoef
 from utils.config import Config
 from utils.visualization.plot_images_grid import plot_images_grid
+from utils.metrics import compute_affiliation_metrics
 from DeepSAD import DeepSAD
 from datasets.main import load_dataset
 
@@ -149,7 +151,75 @@ def main(dataset_name, net_name, xp_path, data_path, load_config=None, load_mode
     # Test model
     deepSAD.test(dataset, device=device, n_jobs_dataloader=n_jobs_dataloader)
 
-    wandb.log({'test_auc': deepSAD.results['test_auc']})
+    # --- Compute standardized evaluation metrics ---
+    _, _labels, _scores = zip(*deepSAD.results['test_scores'])
+    y_true_bin = np.array(_labels, dtype=int)
+    y_score    = np.array(_scores, dtype=float)
+
+    # Percentile threshold derived from true anomaly fraction
+    anomaly_fraction = float(y_true_bin.mean())
+    threshold  = float(np.percentile(y_score, 100 - anomaly_fraction * 100))
+    y_pred_bin = (y_score >= threshold).astype(int)
+
+    nan        = float('nan')
+    test_auc   = float(deepSAD.results['test_auc'])
+    # Binary method — multi-hot metrics are not applicable
+    f1_macro = f1_weighted = mh_acc = mh_recall = nan
+    bin_f1     = float(f1_score(y_true_bin, y_pred_bin, zero_division=0))
+    bin_acc    = float(np.mean(y_true_bin == y_pred_bin))
+    anomaly_mask = y_true_bin == 1
+    bin_recall = (float(y_pred_bin[anomaly_mask].sum() / anomaly_mask.sum())
+                  if anomaly_mask.any() else nan)
+    mcc        = float(matthews_corrcoef(y_true_bin, y_pred_bin))
+    aff        = compute_affiliation_metrics(y_true_bin, y_pred_bin)
+    p_aff, r_aff, f_aff = aff['p_aff'], aff['r_aff'], aff['f_aff']
+
+    def _fmt(v):
+        try:
+            return 'N/A' if np.isnan(v) else f'{v:.4f}'
+        except (TypeError, ValueError):
+            return f'{v:.4f}'
+
+    W = 46
+    print('=' * W)
+    print('    DeepSAD Test Results')
+    print('=' * W)
+    print(f'  Dataset      : {dataset_name}')
+    print(f'  Test samples : {len(y_true_bin)}')
+    print('-' * W)
+    print('  -- Multi-hot --')
+    print(f'  F1 macro      : {_fmt(f1_macro)}')
+    print(f'  F1 weighted   : {_fmt(f1_weighted)}')
+    print(f'  MH accuracy   : {_fmt(mh_acc)}')
+    print(f'  MH recall     : {_fmt(mh_recall)}')
+    print('-' * W)
+    print('  -- Binary --')
+    print(f'  AUC           : {_fmt(test_auc)}')
+    print(f'  F1            : {_fmt(bin_f1)}')
+    print(f'  Accuracy      : {_fmt(bin_acc)}')
+    print(f'  Recall        : {_fmt(bin_recall)}')
+    print(f'  MCC           : {_fmt(mcc)}')
+    print('-' * W)
+    print('  -- Affiliation --')
+    print(f'  P_aff (UAff)  : {_fmt(p_aff)}')
+    print(f'  R_aff (NAff)  : {_fmt(r_aff)}')
+    print(f'  F_aff         : {_fmt(f_aff)}')
+    print('=' * W)
+
+    wandb.log({
+        'test_auc':     test_auc,
+        'f1_macro':     f1_macro,
+        'f1_weighted':  f1_weighted,
+        'mh_acc':       mh_acc,
+        'mh_recall':    mh_recall,
+        'bin_f1':       bin_f1,
+        'bin_acc':      bin_acc,
+        'bin_recall':   bin_recall,
+        'mcc':          mcc,
+        'p_aff':        p_aff,
+        'r_aff':        r_aff,
+        'f_aff':        f_aff,
+    })
 
     # Save results, model, and configuration
     deepSAD.save_results(export_json=model_path + '/results.json')

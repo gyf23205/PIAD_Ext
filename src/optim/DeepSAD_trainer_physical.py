@@ -136,15 +136,27 @@ class DeepSADTrainerPhysical(BaseTrainer):
 
         self.per_class_thresholds = None   # list[float], one per known outlier class
 
-        self.train_time          = None
-        self.test_loss           = None
-        self.test_auc            = None
-        self.test_time           = None
-        self.test_scores         = None
-        self.test_f1_macro_mh    = None
-        self.test_f1_micro_mh    = None
-        self.test_hamming_acc    = None
-        self.test_subset_acc     = None
+        self.train_time           = None
+        self.test_loss            = None
+        self.test_auc             = None
+        self.test_time            = None
+        self.test_scores          = None
+        self.test_f1_macro_mh     = None
+        self.test_f1_micro_mh     = None
+        self.test_f1_weighted_mh  = None
+        self.test_hamming_acc     = None
+        self.test_subset_acc      = None
+        self.test_mh_recall       = None
+        self.test_f1_binary       = None
+        self.test_precision_binary= None
+        self.test_recall_binary   = None
+        self.test_acc_binary      = None
+        # Raw arrays exposed for external metric computation (set after test())
+        self.labels_full  = None
+        self.y_pred_full  = None
+        self.labels_bin   = None
+        self.y_pred_bin   = None
+        self.scores_arr   = None
 
     # ------------------------------------------------------------------
     # Helper: boolean masks from multi-hot semi_targets
@@ -443,10 +455,12 @@ class DeepSADTrainerPhysical(BaseTrainer):
         labels_full    = np.concatenate([labels_mh, labels_unknown[:, None]], axis=1)
 
         # Multi-label metrics
-        self.test_f1_macro_mh = f1_score(labels_full, y_pred_full, average='macro',  zero_division=0)
-        self.test_f1_micro_mh = f1_score(labels_full, y_pred_full, average='micro',  zero_division=0)
-        self.test_hamming_acc = 1.0 - hamming_loss(labels_full, y_pred_full)
-        self.test_subset_acc  = float(np.mean(np.all(labels_full == y_pred_full, axis=1)))
+        self.test_f1_macro_mh    = f1_score(labels_full, y_pred_full, average='macro',    zero_division=0)
+        self.test_f1_micro_mh    = f1_score(labels_full, y_pred_full, average='micro',    zero_division=0)
+        self.test_f1_weighted_mh = f1_score(labels_full, y_pred_full, average='weighted', zero_division=0)
+        self.test_hamming_acc    = 1.0 - hamming_loss(labels_full, y_pred_full)
+        self.test_subset_acc     = float(np.mean(np.all(labels_full == y_pred_full, axis=1)))
+        self.test_mh_recall      = float(recall_score(labels_full, y_pred_full, average='macro', zero_division=0))
 
         # Binary anomaly-detection metrics (unchanged)
         y_pred_bin = samples_anomaly.astype(int)
@@ -454,6 +468,13 @@ class DeepSADTrainerPhysical(BaseTrainer):
         self.test_precision_binary = precision_score(labels_bin, y_pred_bin, zero_division=0)
         self.test_recall_binary    = recall_score(labels_bin, y_pred_bin, zero_division=0)
         self.test_acc_binary       = float(np.mean(labels_bin == y_pred_bin))
+
+        # Expose raw arrays for external metric computation in main_res.py
+        self.labels_full = labels_full
+        self.y_pred_full = y_pred_full
+        self.labels_bin  = labels_bin
+        self.y_pred_bin  = y_pred_bin
+        self.scores_arr  = scores_arr
 
         self.test_loss = epoch_loss / n_batches
         logger.info('Test Loss: {:.6f}'.format(epoch_loss / n_batches))

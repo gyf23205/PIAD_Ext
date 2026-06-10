@@ -32,13 +32,13 @@ sys.path.insert(0, os.path.dirname(__file__))
 from base.exp_basic import Exp_Basic
 from baselines.util_TimesNet import EarlyStopping, adjust_learning_rate
 from datasets.main import load_dataset
-from sklearn.metrics import accuracy_score, precision_recall_fscore_support, roc_auc_score
+from sklearn.metrics import accuracy_score, precision_recall_fscore_support, roc_auc_score, matthews_corrcoef
 from utils.metrics import compute_affiliation_metrics
 
 
 DATASET_CONFIGS = {
     'Pegasus': {
-        'known_outlier_classes': [1, 3, 4, 6],
+        'known_outlier_classes': [1, 3, 4, 7],
         'n_known_outlier_classes': 4,
         'ratio_known_normal': 0.0,
         'ratio_known_outlier': 0.0,
@@ -48,7 +48,7 @@ DATASET_CONFIGS = {
         'seq_len': 20,
     },
     'ALFA': {
-        'known_outlier_classes': [1, 2, 3, 4],
+        'known_outlier_classes': [1, 3, 4, 6],
         'n_known_outlier_classes': 4,
         'ratio_known_normal': 0.0,
         'ratio_known_outlier': 0.0,
@@ -58,8 +58,8 @@ DATASET_CONFIGS = {
         'seq_len': 25,
     },
     'spoofing_multi_profile': {
-        'known_outlier_classes': [1, 2],
-        'n_known_outlier_classes': 2,
+        'known_outlier_classes': [1],
+        'n_known_outlier_classes': 1,
         'ratio_known_normal': 0.0,
         'ratio_known_outlier': 0.0,
         'ratio_pollution': 0.1,
@@ -68,8 +68,8 @@ DATASET_CONFIGS = {
         'seq_len': 100,
     },
     'spoofing_wind': {
-        'known_outlier_classes': [1, 2],
-        'n_known_outlier_classes': 2,
+        'known_outlier_classes': [1],
+        'n_known_outlier_classes': 1,
         'ratio_known_normal': 0.0,
         'ratio_known_outlier': 0.0,
         'ratio_pollution': 0.1,
@@ -288,18 +288,24 @@ class Exp_Anomaly_Detection(Exp_Basic):
             roc_auc = float('nan')
 
         aff = compute_affiliation_metrics(gt, pred)
-        print(f"Accuracy: {accuracy:.4f}  Precision: {precision:.4f}  "
-              f"Recall: {recall:.4f}  F-score: {f_score:.4f}  ROC AUC: {roc_auc:.4f}")
-        print(f"P_aff (UAff): {aff['p_aff']:.4f}  R_aff (NAff): {aff['r_aff']:.4f}  F_aff: {aff['f_aff']:.4f}")
+        mcc = float(matthews_corrcoef(gt, pred))
+        nan = float('nan')
         metrics = {
-            'accuracy':  accuracy,
-            'precision': precision,
-            'recall':    recall,
-            'f1':        f_score,
-            'roc_auc':   roc_auc,
-            'p_aff':     aff['p_aff'],
-            'r_aff':     aff['r_aff'],
-            'f_aff':     aff['f_aff'],
+            'test_auc':    roc_auc,
+            'f1_macro':    nan,      # binary method — no per-class multi-hot predictions
+            'f1_weighted': nan,
+            'mh_acc':      nan,
+            'mh_recall':   nan,
+            'bin_f1':      float(f_score),
+            'bin_acc':     float(accuracy),
+            'bin_recall':  float(recall),
+            'mcc':         mcc,
+            'p_aff':       aff['p_aff'],
+            'r_aff':       aff['r_aff'],
+            'f_aff':       aff['f_aff'],
+            # internal extras kept for checkpoint / logging convenience
+            '_n_samples':  int(len(gt)),
+            '_precision':  float(precision),
         }
         # Return original unsigned threshold so test_TimesNet.py can apply
         # the same sign-flip logic when loading from checkpoint.
@@ -351,15 +357,51 @@ def main(ratio_pollution=None, ratio_known_outlier=None, ratio_known_normal=None
     exp.train(train_loader, vali_loader, test_loader, tmp_model_path)
     threshold, test_energy, metrics = exp.test(train_loader, test_loader)
 
+    def _fmt(v):
+        try:
+            return 'N/A' if np.isnan(v) else f'{v:.4f}'
+        except (TypeError, ValueError):
+            return f'{v:.4f}'
+
+    W = 46
+    print('=' * W)
+    print('    TimesNet Test Results')
+    print('=' * W)
+    print(f'  Dataset      : {args.dataset}')
+    print(f'  Test samples : {metrics["_n_samples"]}')
+    print('-' * W)
+    print('  -- Multi-hot --')
+    print(f'  F1 macro      : {_fmt(metrics["f1_macro"])}')
+    print(f'  F1 weighted   : {_fmt(metrics["f1_weighted"])}')
+    print(f'  MH accuracy   : {_fmt(metrics["mh_acc"])}')
+    print(f'  MH recall     : {_fmt(metrics["mh_recall"])}')
+    print('-' * W)
+    print('  -- Binary --')
+    print(f'  AUC           : {_fmt(metrics["test_auc"])}')
+    print(f'  F1            : {_fmt(metrics["bin_f1"])}')
+    print(f'  Accuracy      : {_fmt(metrics["bin_acc"])}')
+    print(f'  Recall        : {_fmt(metrics["bin_recall"])}')
+    print(f'  MCC           : {_fmt(metrics["mcc"])}')
+    print('-' * W)
+    print('  -- Affiliation --')
+    print(f'  P_aff (UAff)  : {_fmt(metrics["p_aff"])}')
+    print(f'  R_aff (NAff)  : {_fmt(metrics["r_aff"])}')
+    print(f'  F_aff         : {_fmt(metrics["f_aff"])}')
+    print('=' * W)
+
     wandb.log({
-        'accuracy':  metrics['accuracy'],
-        'precision': metrics['precision'],
-        'recall':    metrics['recall'],
-        'f1':        metrics['f1'],
-        'roc_auc':   metrics['roc_auc'],
-        'p_aff':     metrics['p_aff'],
-        'r_aff':     metrics['r_aff'],
-        'f_aff':     metrics['f_aff'],
+        'test_auc':     metrics['test_auc'],
+        'f1_macro':     metrics['f1_macro'],
+        'f1_weighted':  metrics['f1_weighted'],
+        'mh_acc':       metrics['mh_acc'],
+        'mh_recall':    metrics['mh_recall'],
+        'bin_f1':       metrics['bin_f1'],
+        'bin_acc':      metrics['bin_acc'],
+        'bin_recall':   metrics['bin_recall'],
+        'mcc':          metrics['mcc'],
+        'p_aff':        metrics['p_aff'],
+        'r_aff':        metrics['r_aff'],
+        'f_aff':        metrics['f_aff'],
     })
 
     if not args.no_save:

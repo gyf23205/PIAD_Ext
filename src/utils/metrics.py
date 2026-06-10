@@ -105,3 +105,31 @@ def compute_affiliation_metrics(y_true_bin: np.ndarray, y_pred_bin: np.ndarray) 
     r = float(result["recall"])
     f = 2 * p * r / (p + r) if (p + r) > 0 else 0.0
     return {"p_aff": p, "r_aff": r, "f_aff": f}
+
+
+def single_to_multihot(y_pred_single: np.ndarray, n_ac: int) -> np.ndarray:
+    """Convert (n,) single-class int predictions to (n, n_ac) binary indicator.
+
+    Convention: 0 = normal (all-zero row), k>=1 = col k-1 set to 1.
+    """
+    out = np.zeros((len(y_pred_single), n_ac), dtype=int)
+    for i, cls in enumerate(y_pred_single):
+        if cls >= 1:
+            col = int(cls) - 1
+            if col < n_ac:
+                out[i, col] = 1
+    return out
+
+
+def compute_multihot_metrics(y_true_mh: np.ndarray, y_pred_mh: np.ndarray) -> dict:
+    """Compute multi-label metrics using sklearn indicator (multi-hot) format.
+
+    Returns: f1_macro, f1_weighted, mh_acc (1-hamming_loss), mh_recall (macro avg).
+    """
+    from sklearn.metrics import f1_score, hamming_loss, recall_score
+    return {
+        "f1_macro":    float(f1_score(y_true_mh, y_pred_mh, average="macro",    zero_division=0)),
+        "f1_weighted": float(f1_score(y_true_mh, y_pred_mh, average="weighted", zero_division=0)),
+        "mh_acc":      float(1.0 - hamming_loss(y_true_mh, y_pred_mh)),
+        "mh_recall":   float(recall_score(y_true_mh, y_pred_mh, average="macro", zero_division=0)),
+    }

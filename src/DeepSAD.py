@@ -100,33 +100,30 @@ class DeepSAD(object):
 
         self.trainer.test(dataset, self.net)
 
-        # Get results
-        self.results['test_auc'] = self.trainer.test_auc
-        self.results['test_time'] = self.trainer.test_time
+        # Get results (wandb logging is handled in main_SAD.py after metric computation)
+        self.results['test_auc']    = self.trainer.test_auc
+        self.results['test_time']   = self.trainer.test_time
         self.results['test_scores'] = self.trainer.test_scores
-        self.results['test_f1'] = self.trainer.test_f1
-        self.results['test_acc'] = self.trainer.test_acc
-        self.results['test_recall'] = self.trainer.test_recall
-        wandb.log(self.results)
 
     def test_physical(self, dataset: BaseADDataset, device: str = 'cuda', n_jobs_dataloader: int = 0):
         """Tests the Deep SAD model on the test data."""
 
         self.trainer.test(dataset, self.net)
 
-        # Get results
-        self.results['test_loss']            = self.trainer.test_loss
-        self.results['test_auc']             = self.trainer.test_auc
-        self.results['test_time']            = self.trainer.test_time
-        self.results['test_f1_macro_mh']     = self.trainer.test_f1_macro_mh
-        self.results['test_f1_micro_mh']     = self.trainer.test_f1_micro_mh
-        self.results['test_hamming_acc']     = self.trainer.test_hamming_acc
-        self.results['test_subset_acc']      = self.trainer.test_subset_acc
-        self.results['test_f1_binary']       = self.trainer.test_f1_binary
-        self.results['test_precision_binary']= self.trainer.test_precision_binary
-        self.results['test_recall_binary']   = self.trainer.test_recall_binary
-        self.results['test_acc_binary']      = self.trainer.test_acc_binary
-        wandb.log(self.results)
+        # Get results (wandb logging is handled in main_res.py after full metric computation)
+        self.results['test_loss']             = self.trainer.test_loss
+        self.results['test_auc']              = self.trainer.test_auc
+        self.results['test_time']             = self.trainer.test_time
+        self.results['test_f1_macro_mh']      = self.trainer.test_f1_macro_mh
+        self.results['test_f1_micro_mh']      = self.trainer.test_f1_micro_mh
+        self.results['test_f1_weighted_mh']   = self.trainer.test_f1_weighted_mh
+        self.results['test_hamming_acc']      = self.trainer.test_hamming_acc
+        self.results['test_subset_acc']       = self.trainer.test_subset_acc
+        self.results['test_mh_recall']        = self.trainer.test_mh_recall
+        self.results['test_f1_binary']        = self.trainer.test_f1_binary
+        self.results['test_precision_binary'] = self.trainer.test_precision_binary
+        self.results['test_recall_binary']    = self.trainer.test_recall_binary
+        self.results['test_acc_binary']       = self.trainer.test_acc_binary
 
     def pretrain(self, dataset: BaseADDataset, optimizer_name: str = 'adam', lr: float = 0.001, n_epochs: int = 100,
                  lr_milestones: tuple = (), batch_size: int = 128, weight_decay: float = 1e-6, device: str = 'cuda',
