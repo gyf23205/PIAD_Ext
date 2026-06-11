@@ -571,6 +571,9 @@ class DeepSADTrainerPhysical(BaseTrainer):
         n_classes  = self.n_known_outlier_classes + 1
         n_samples  = torch.zeros(n_classes, device=self.device)
 
+        # Save old centroids so classes with no samples this pass stay unchanged
+        old_centroids = {k: v.clone() for k, v in self.centroids.items()}
+
         self.centroids['c_normal'].zero_()
         for i in range(self.n_known_outlier_classes):
             self.centroids[f'c_outlier_{i+1}'].zero_()
@@ -599,15 +602,13 @@ class DeepSADTrainerPhysical(BaseTrainer):
                         self.centroids[f'c_outlier_{idx_k+1}'] += out_k.sum(dim=0)
                         n_samples[idx_k+1]                     += out_k.shape[0]
 
-        if any(n_samples == 0):
-            raise ValueError("At least one sample needs to be labeled in the training set for each class.")
-
-        # Normalise and clip near-zero values away from 0
+        # Normalise and clip near-zero values away from 0; keep old centroid if no samples seen
         for idx_k in range(n_classes):
-            if idx_k == 0:
-                c = self.centroids['c_normal']
-            else:
-                c = self.centroids[f'c_outlier_{idx_k}']
+            key = 'c_normal' if idx_k == 0 else f'c_outlier_{idx_k}'
+            if n_samples[idx_k] == 0:
+                self.centroids[key].copy_(old_centroids[key])
+                continue
+            c = self.centroids[key]
             c /= n_samples[idx_k]
             c[(c.abs() < eps) & (c < 0)] = -eps
             c[(c.abs() < eps) & (c > 0)] =  eps
