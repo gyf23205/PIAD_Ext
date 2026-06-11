@@ -100,10 +100,16 @@ def compute_affiliation_metrics(y_true_bin: np.ndarray, y_pred_bin: np.ndarray) 
     if not events_gt:
         return {"p_aff": float("nan"), "r_aff": float("nan"), "f_aff": float("nan")}
 
+    if not events_pred:
+        # No predicted events: affiliation precision is undefined (NaN by
+        # convention here); recall over GT events is 0.
+        return {"p_aff": float("nan"), "r_aff": 0.0, "f_aff": 0.0}
+
     result = pr_from_events(events_pred, events_gt, Trange)
     p = float(result["precision"])
     r = float(result["recall"])
-    f = 2 * p * r / (p + r) if (p + r) > 0 else 0.0
+    f = (2 * p * r / (p + r)
+         if np.isfinite(p) and np.isfinite(r) and (p + r) > 0 else 0.0)
     return {"p_aff": p, "r_aff": r, "f_aff": f}
 
 

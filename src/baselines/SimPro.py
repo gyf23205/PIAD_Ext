@@ -11,8 +11,11 @@ Key adaptations from the original image-classification implementation:
   * MLP backbone instead of WideResNet (matches PIAD_Ext network style)
   * Multi-hot → single-label conversion for ALFA / Pegasus datasets
   * Gaussian-noise augmentation instead of RandAugment (tabular/time-series)
-  * Anomaly score = 1 - P(normal | x) using Bayes-adjusted logits
+  * Anomaly score = 1 - P(normal | x) from raw-logit softmax (paper Eq. 11;
+    the φ adjustment lives in the training loss only, as in the original repo)
   * α auto-computed from labeled/unlabeled ratio per the paper (Sec. 3.3)
+  * φ / π_u smoothed and floored: unlike the original benchmarks, a class can
+    have zero labeled samples here (e.g. ratio_known_outlier = 0)
 """
 
 import copy
@@ -164,13 +167,15 @@ class SimProTrainer:
         # ---- DataLoaders ----
         labeled_ds   = TensorDataset(X_l, y_l)
         labeled_loader = DataLoader(labeled_ds, batch_size=self.batch_size,
-                                    shuffle=True, drop_last=True)
+                                    shuffle=True,
+                                    drop_last=len(labeled_ds) >= self.batch_size)
 
         has_unlabeled = M > 0
         if has_unlabeled:
             unlabeled_ds     = TensorDataset(X_u)
             unlabeled_loader = DataLoader(unlabeled_ds, batch_size=self.batch_size * 2,
-                                          shuffle=True, drop_last=True)
+                                          shuffle=True,
+                                          drop_last=len(unlabeled_ds) >= self.batch_size * 2)
 
         # ---- Model & optimiser ----
         self.model = SimProNet(self.input_dim, self.h_dims, self.rep_dim, K).to(device)
@@ -186,11 +191,13 @@ class SimProTrainer:
             optimizer, milestones=milestones, gamma=0.1)
 
         # ---- Initialise distributions (Sec. 3.3) ----
-        # φ  → from labeled class frequencies (consistent init per paper)
+        # φ  → from labeled class frequencies (consistent init per paper).
+        # Laplace smoothing keeps classes with zero labeled samples reachable
+        # (the original benchmarks always have ≥1 labeled sample per class).
         counts = torch.zeros(K)
         for c in y_l.tolist():
             counts[c] += 1
-        phi  = (counts / counts.sum().clamp(min=1e-12)).to(device)
+        phi  = ((counts + 1.0) / (counts.sum() + K)).to(device)
         # π_u → uniform (no assumption on unlabeled distribution per paper)
         pi_u = torch.ones(K, device=device) / K
 
@@ -209,7 +216,11 @@ class SimProTrainer:
 
             labeled_iter   = iter(labeled_loader)
             unlabeled_iter = iter(unlabeled_loader) if has_unlabeled else None
-            n_steps = len(labeled_loader)
+            # Consume the full unlabeled pool each epoch (the original cycles
+            # both loaders over a fixed iteration count); driving steps off the
+            # labeled loader alone starves training when N << M.
+            n_steps = max(len(labeled_loader),
+                          len(unlabeled_loader) if has_unlabeled else 0)
 
             for _ in range(n_steps):
                 # ---- Labeled batch ----
@@ -238,7 +249,7 @@ class SimProTrainer:
                     # E-step: generate soft pseudo-labels using Bayes classifier
                     with torch.no_grad():
                         lgt_w  = self.model(_weak_aug(X_ub))
-                    adj_u  = self.tau * torch.log(pi_u + 1e-12)          # (K,)
+                    adj_u  = torch.log(pi_u ** self.tau + 1e-12)         # (K,)
                     psd    = F.softmax(lgt_w + adj_u, dim=-1)            # (B_u, K)
                     mask   = psd.max(dim=-1)[0].ge(self.threshold)        # (B_u,)
 
@@ -247,7 +258,7 @@ class SimProTrainer:
                         pi_e += psd[mask].sum(dim=0).detach()
 
                     # M-step: unlabeled CE loss (Eq. 13 / 15)
-                    adj   = self.tau * torch.log(phi + 1e-12)
+                    adj   = torch.log(phi ** self.tau + 1e-12)
                     lgt_s = self.model(_strong_aug(X_ub))
                     if mask.any():
                         loss_u = (
@@ -255,9 +266,10 @@ class SimProTrainer:
                                             reduction="none") * mask.float()
                         ).mean()
 
-                # M-step: labeled CE loss (Eq. 13 / 14)
-                adj    = self.tau * torch.log(phi + 1e-12)
-                lgt_l  = self.model(X_lb)
+                # M-step: labeled CE loss (Eq. 13 / 14); Alg. 1 augments the
+                # labeled forward as well
+                adj    = torch.log(phi ** self.tau + 1e-12)
+                lgt_l  = self.model(_weak_aug(X_lb))
                 loss_l = F.cross_entropy(lgt_l + adj, y_lb)
 
                 loss = alpha * loss_l + loss_u
@@ -269,20 +281,26 @@ class SimProTrainer:
             scheduler.step()
 
             # ---- End-of-epoch distribution updates (Eq. 7 & 9) ----
+            # Floor + renormalise so no class collapses to an exact zero
+            # (a hard zero makes the class unreachable for all later epochs).
+            def _floor(p: torch.Tensor) -> torch.Tensor:
+                p = p.clamp(min=1e-4)
+                return p / p.sum()
+
             # Update π_u (unlabeled marginal)
             if pi_e.sum() > 1e-12:
                 pi_u_new = pi_e / pi_e.sum()
-                pi_u     = self.ema_u * pi_u + (1.0 - self.ema_u) * pi_u_new
+                pi_u     = _floor(self.ema_u * pi_u + (1.0 - self.ema_u) * pi_u_new)
 
             # Update φ (overall frequency, combines labeled + pseudo-labeled)
             count = pi_e + N_e
             if count.sum() > 1e-12:
                 phi_new = count / count.sum()
-                phi     = self.ema_u * phi + (1.0 - self.ema_u) * phi_new
+                phi     = _floor(self.ema_u * phi + (1.0 - self.ema_u) * phi_new)
 
             # ---- Validation ----
             if epoch % self.eval_period == 0 or epoch == self.n_epochs:
-                auc = self._eval_auc(X_val, val_y_single, phi, device)
+                auc = self._eval_auc(X_val, val_y_single, device)
                 print(f"  Epoch {epoch:4d}/{self.n_epochs} | "
                       f"AUC={auc:.4f}  best={self._best_auc:.4f}  "
                       f"α={alpha:.3f}  pseudo_mass={pi_e.sum():.1f}")
@@ -307,11 +325,11 @@ class SimProTrainer:
     def predict(self, X_test: np.ndarray) -> np.ndarray:
         """Anomaly score = 1 − P(normal | x).  Higher = more anomalous.
 
-        Uses the Bayes-adjusted softmax with φ (Eq. 10 / 17 of the paper).
+        Raw-logit softmax (Eq. 11 of the paper): the φ adjustment appears in
+        the training loss only, so f_θ already yields the balanced posterior —
+        matching the original repo's evaluation.
         """
         device = torch.device(self.device)
-        phi    = self._phi.to(device)
-        adj    = self.tau * torch.log(phi + 1e-12)
 
         self.model.eval()
         scores = []
@@ -322,15 +340,13 @@ class SimProTrainer:
         with torch.no_grad():
             for (x,) in loader:
                 logits = self.model(x.to(device))
-                probs  = F.softmax(logits + adj, dim=1)
+                probs  = F.softmax(logits, dim=1)
                 scores.append((1.0 - probs[:, 0]).cpu().numpy())
         return np.concatenate(scores)
 
     def predict_labels(self, X_test: np.ndarray) -> np.ndarray:
-        """Return predicted class indices via Bayes-adjusted argmax."""
+        """Return predicted class indices via raw-logit argmax (Eq. 11)."""
         device = torch.device(self.device)
-        phi    = self._phi.to(device)
-        adj    = self.tau * torch.log(phi + 1e-12)
 
         self.model.eval()
         preds = []
@@ -341,7 +357,7 @@ class SimProTrainer:
         with torch.no_grad():
             for (x,) in loader:
                 logits = self.model(x.to(device))
-                preds.append((logits + adj).argmax(dim=1).cpu().numpy())
+                preds.append(logits.argmax(dim=1).cpu().numpy())
         return np.concatenate(preds)
 
     # ------------------------------------------------------------------
@@ -383,13 +399,8 @@ class SimProTrainer:
 
     # ------------------------------------------------------------------
     def _eval_auc(self, X_val: np.ndarray, y_val_single: np.ndarray,
-                  phi: torch.Tensor, device: torch.device) -> float:
-        """Binary ROC-AUC on validation set using the supplied φ.
-
-        Does NOT modify self._phi — the caller owns self._phi and must
-        set it explicitly when saving a checkpoint.
-        """
-        adj = self.tau * torch.log(phi + 1e-12)   # (K,) on device
+                  device: torch.device) -> float:
+        """Binary ROC-AUC on validation set via raw-logit softmax (Eq. 11)."""
         self.model.eval()
         scores = []
         loader = DataLoader(
@@ -399,7 +410,7 @@ class SimProTrainer:
         with torch.no_grad():
             for (x,) in loader:
                 logits = self.model(x.to(device))
-                probs  = F.softmax(logits + adj, dim=1)
+                probs  = F.softmax(logits, dim=1)
                 scores.append((1.0 - probs[:, 0]).cpu().numpy())
         y_bin = (y_val_single > 0).astype(int)
         try:

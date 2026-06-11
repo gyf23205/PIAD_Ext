@@ -19,3 +19,4 @@ data/**
 !data/spoofing/*sin_batched.npy
 !data/spoofing/*sin_seq.npy
 **.pt
+**.csv

@@ -285,7 +285,8 @@ class DASOTrainer:
                                     shuffle=True, drop_last=len(labeled_ds) >= self.batch_size)
         # Unlabeled loader uses 2× batch size (common in SSL)
         unlabeled_loader = DataLoader(unlabeled_ds, batch_size=self.batch_size * 2,
-                                      shuffle=True, drop_last=True)
+                                      shuffle=True,
+                                      drop_last=len(unlabeled_ds) >= self.batch_size * 2)
 
         # ---- Init model, EMA, queue, optimizer ----
         self.net = DASONet(self.input_dim, self.h_dims, self.rep_dim, self.n_classes).to(device)

@@ -196,9 +196,11 @@ class CCLTrainer:
         labeled_ds    = TensorDataset(X_l, y_l)
         unlabeled_ds  = TensorDataset(X_u)
         labeled_loader   = DataLoader(labeled_ds,   batch_size=self.batch_size,
-                                      shuffle=True, drop_last=True)
+                                      shuffle=True,
+                                      drop_last=len(labeled_ds) >= self.batch_size)
         unlabeled_loader = DataLoader(unlabeled_ds, batch_size=self.batch_size,
-                                      shuffle=True, drop_last=True)
+                                      shuffle=True,
+                                      drop_last=len(unlabeled_ds) >= self.batch_size)
 
         # ---- Validation tensors (stay on CPU until scoring) ----
         X_val_t = torch.tensor(X_val, dtype=torch.float32)
