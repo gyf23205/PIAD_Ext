@@ -23,8 +23,7 @@ from sklearn.metrics import f1_score, matthews_corrcoef, roc_auc_score
 sys.path.insert(0, os.path.dirname(__file__))
 
 from baselines.SimAD import SimADTrainer
-from utils.metrics import (truth_multihot_to_single, compute_affiliation_metrics,
-                           single_to_multihot, compute_multihot_metrics)
+from utils.metrics import truth_multihot_to_single, compute_affiliation_metrics
 from utils.data import extract_numpy
 from datasets.main import load_dataset
 
@@ -293,13 +292,8 @@ def main(ratio_pollution=None, ratio_known_outlier=None, ratio_known_normal=None
     aff = compute_affiliation_metrics(y_true_bin, y_pred_bin)
     p_aff, r_aff, f_aff = aff['p_aff'], aff['r_aff'], aff['f_aff']
 
-    # Multi-hot metrics (multi-label indicator format)
-    n_ac      = y_test.shape[1]
-    y_pred_mh = single_to_multihot(y_pred, n_ac)
-    y_true_mh = y_test.astype(int)
-    mh        = compute_multihot_metrics(y_true_mh, y_pred_mh)
-    f1_macro, f1_weighted = mh['f1_macro'], mh['f1_weighted']
-    mh_acc,   mh_recall   = mh['mh_acc'],   mh['mh_recall']
+    # Binary method — multi-hot metrics are not applicable
+    f1_macro = f1_weighted = mh_acc = mh_recall = float('nan')
 
     def _fmt(v):
         try:

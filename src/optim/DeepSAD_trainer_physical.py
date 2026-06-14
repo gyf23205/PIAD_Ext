@@ -183,10 +183,13 @@ class DeepSADTrainerPhysical(BaseTrainer):
         is_labeled_normal, is_labeled_anomaly, is_labeled = self._labeled_masks(semi_targets)
 
         # -------- Original Deep SAD loss --------
+        # Unlabeled samples are pulled toward c_normal as well (as in the
+        # original Deep SAD, where unlabeled data contributes `dist`).
         dist = torch.sum((outputs - self.centroids['c_normal']) ** 2, dim=1)
 
-        if is_labeled_normal.any():
-            loss_normal = torch.mean(dist[is_labeled_normal])
+        pull_normal = is_labeled_normal | ~is_labeled   # labeled normal + unlabeled
+        if pull_normal.any():
+            loss_normal = torch.mean(dist[pull_normal])
         else:
             loss_normal = torch.tensor(0.0, device=self.device)
 
