@@ -10,6 +10,7 @@ src/wandb/**
 checkpoints/**
 log/**
 results/**
+saved_model/**
 !data/spoofing/*multi_noise_batched.npy
 data/**
 !data/ALFA/next_all.npy
