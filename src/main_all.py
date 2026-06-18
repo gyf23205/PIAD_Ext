@@ -20,7 +20,7 @@ _PHY_HYPERS = dict(
     eta=6.9264986318494515, tau=0.5, coeff=_COEFF,
     lr=0.0001, n_epochs=700, lr_milestone=[200, 400, 600, 800],
     batch_size=128, weight_decay=0.5e-6,
-    setting_hypers=[256, 512, 64, 2.0],
+    setting_hypers=[256, 512, 256, 2.0],
 )
 
 DATASET_CONFIGS = {
