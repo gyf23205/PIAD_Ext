@@ -1,0 +1,31 @@
+program: src/main_all.py
+method: bayes
+project: PIAD_Ext
+name: PCAD_loss_weight_sweep_ALFA
+metric:
+  name: test_auc
+  goal: maximize
+run_cap: 150
+parameters:
+  dataset:
+    value: ALFA
+  ratios:
+    value: [0.05, 0.05, 0.05]
+  seed:
+    value: 42
+  coeff_sad:
+    distribution: uniform
+    min: 0.5
+    max: 5.0
+  coeff_pred:
+    distribution: uniform
+    min: 0.5
+    max: 5.0
+  coeff_dir:
+    distribution: uniform
+    min: 0.5
+    max: 5.0
+  coeff_cluster:
+    distribution: uniform
+    min: 0.5
+    max: 5.0

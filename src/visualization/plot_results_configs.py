@@ -5,9 +5,13 @@ in each subplot: mean values appear as dots with a different marker shape (and
 color) per config, slightly offset horizontally per method, with +/- std error
 bars.
 
+Pass several metrics to stack them as rows: the figure has one row per metric
+and one column per dataset.
+
 Usage:
-    python src/visualization/plot_results_configs.py --metric bin_f1
-    python src/visualization/plot_results_configs.py --metric F_aff --methods PCAD RoSAS SimAD
+    python src/visualization/plot_results_configs.py --metrics bin_f1
+    python src/visualization/plot_results_configs.py --metrics bin_f1 mh_recall test_auc
+    python src/visualization/plot_results_configs.py --metrics F_aff --methods PCAD RoSAS SimAD
 """
 import argparse
 import math
@@ -23,53 +27,65 @@ MARKERS = ['o', 's', '^', 'D', 'v']
 CONFIG_COLORS = ['#0072B2', '#E69F00', '#009E73', '#D55E00', '#CC79A7']
 
 
-def plot_metric_all_configs(results, datasets, metric, methods, config_labels, save_dir,
-                            show=True, save=True):
-    # Fail loudly on any missing value for the selected methods/metric.
-    for dataset in datasets:
-        for cfg in range(N_CONFIGS):
-            for method in methods:
-                mean, std = results[dataset][cfg].get(method, {}).get(metric, (float('nan'), float('nan')))
-                if math.isnan(mean) or math.isnan(std):
-                    raise ValueError(
-                        f'Missing value: dataset={dataset}, method={method}, '
-                        f'metric={metric}, config={cfg} ({config_labels[cfg]})'
-                    )
+def plot_metrics_all_configs(results, datasets, metrics, methods, config_labels, save_dir,
+                             show=True, save=True):
+    # Fail loudly on any missing value for the selected methods/metrics.
+    for metric in metrics:
+        for dataset in datasets:
+            for cfg in range(N_CONFIGS):
+                for method in methods:
+                    mean, std = results[dataset][cfg].get(method, {}).get(metric, (float('nan'), float('nan')))
+                    if math.isnan(mean) or math.isnan(std):
+                        raise ValueError(
+                            f'Missing value: dataset={dataset}, method={method}, '
+                            f'metric={metric}, config={cfg} ({config_labels[cfg]})'
+                        )
 
-    n = len(datasets)
-    fig, axes = plt.subplots(1, n, figsize=(4 * n, 4))
-    if n == 1:
-        axes = [axes]
+    n_rows = len(metrics)
+    n_cols = len(datasets)
+    fig, axes = plt.subplots(n_rows, n_cols, figsize=(4 * n_cols, 2.8 * n_rows),
+                             squeeze=False)
     x = np.arange(len(methods))
     offsets = np.linspace(-0.25, 0.25, N_CONFIGS)
-    for ax, dataset in zip(axes, datasets):
-        for cfg in range(N_CONFIGS):
-            means = [results[dataset][cfg][m][metric][0] for m in methods]
-            stds = [results[dataset][cfg][m][metric][1] for m in methods]
-            ax.errorbar(x + offsets[cfg], means, yerr=stds,
-                        fmt=MARKERS[cfg % len(MARKERS)],
-                        color=CONFIG_COLORS[cfg % len(CONFIG_COLORS)],
-                        markersize=7, markeredgecolor='black', markeredgewidth=0.5,
-                        linestyle='none', capsize=3, elinewidth=1.2,
-                        label=config_labels[cfg])
-        ax.set_xticks(x)
-        ax.set_xticklabels(methods, rotation=45, ha='right')
-        ax.set_title(dataset, fontsize=13)
-        ax.grid(axis='y', color='0.85', linewidth=0.8)
-        ax.set_axisbelow(True)
-        ax.spines[['top', 'right']].set_visible(False)
-    axes[0].set_ylabel(metric)
-    fig.suptitle(metric, fontweight='bold', y=1.06)
-    handles, labels = axes[0].get_legend_handles_labels()
+    for r, metric in enumerate(metrics):
+        for c, dataset in enumerate(datasets):
+            ax = axes[r][c]
+            for cfg in range(N_CONFIGS):
+                means = [results[dataset][cfg][m][metric][0] for m in methods]
+                stds = [results[dataset][cfg][m][metric][1] for m in methods]
+                ax.errorbar(x + offsets[cfg], means, yerr=stds,
+                            fmt=MARKERS[cfg % len(MARKERS)],
+                            color=CONFIG_COLORS[cfg % len(CONFIG_COLORS)],
+                            markersize=7, markeredgecolor='black', markeredgewidth=0.5,
+                            linestyle='none', capsize=3, elinewidth=1.2,
+                            label=config_labels[cfg])
+            # Vertical separators at the midpoints between adjacent method groups
+            for xb in x[:-1] + 0.5:
+                ax.axvline(xb, color='0.7', linewidth=0.8, linestyle='--', zorder=0)
+            ax.set_xlim(x[0] - 0.5, x[-1] + 0.5)
+            ax.set_xticks(x)
+            # Only label the x-axis methods on the bottom row to reduce clutter.
+            if r == n_rows - 1:
+                ax.set_xticklabels(methods, rotation=45, ha='right')
+            else:
+                ax.set_xticklabels([])
+            if r == 0:
+                ax.set_title(dataset)
+            if c == 0:
+                ax.set_ylabel(metric)
+            ax.grid(axis='y', color='0.85', linewidth=0.8)
+            ax.set_axisbelow(True)
+            ax.spines[['top', 'right']].set_visible(False)
+    handles, labels = axes[0][0].get_legend_handles_labels()
     fig.legend(handles, labels, loc='upper center', bbox_to_anchor=(0.5, 1.02),
                ncol=N_CONFIGS, frameon=False)
     fig.tight_layout()
 
     if save:
         os.makedirs(save_dir, exist_ok=True)
-        safe_metric = re.sub(r'[^\w.-]+', '_', metric).strip('_')
-        out_path = os.path.join(save_dir, f'{safe_metric}_allcfg.png')
-        fig.savefig(out_path, dpi=300, bbox_inches='tight')
+        safe_metrics = '_'.join(re.sub(r'[^\w.-]+', '_', m).strip('_') for m in metrics)
+        out_path = os.path.join(save_dir, f'{safe_metrics}_allcfg.pdf')
+        fig.savefig(out_path, bbox_inches='tight')
         print(f'Saved figure to {out_path}')
     if show:
         plt.show()
@@ -77,7 +93,8 @@ def plot_metric_all_configs(results, datasets, metric, methods, config_labels, s
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument('--metric', required=True, help=f'Metric to plot, one of: {METRICS}')
+    parser.add_argument('--metrics', nargs='+', required=True,
+                        help=f'Metric(s) to plot, one row per metric. Choose from: {METRICS}')
     parser.add_argument('--methods', nargs='+', default=None,
                         help='Methods to include (default: all methods found in the file)')
     parser.add_argument('--xlsx', default=XLSX_PATH, help='Path to results.xlsx')
@@ -86,8 +103,9 @@ if __name__ == '__main__':
     parser.add_argument('--no-save', action='store_true', help='Only show the figure, do not save it to disk')
     args = parser.parse_args()
 
-    if args.metric not in METRICS:
-        parser.error(f'Unknown metric "{args.metric}". Valid metrics: {METRICS}')
+    unknown_metrics = [m for m in args.metrics if m not in METRICS]
+    if unknown_metrics:
+        parser.error(f'Unknown metric(s) {unknown_metrics}. Valid metrics: {METRICS}')
 
     results, datasets, all_methods, config_labels = load_results(args.xlsx)
 
@@ -96,5 +114,5 @@ if __name__ == '__main__':
     if unknown:
         parser.error(f'Unknown method(s) {unknown}. Valid methods: {all_methods}')
 
-    plot_metric_all_configs(results, datasets, args.metric, methods, config_labels,
-                            args.save_dir, show=not args.no_show, save=not args.no_save)
+    plot_metrics_all_configs(results, datasets, args.metrics, methods, config_labels,
+                             args.save_dir, show=not args.no_show, save=not args.no_save)

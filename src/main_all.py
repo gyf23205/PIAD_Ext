@@ -1,6 +1,7 @@
 import torch
 import logging
 import random
+import argparse
 import numpy as np
 from datetime import datetime
 import wandb
@@ -225,13 +226,36 @@ def main(dataset_name, net_name, xp_path, data_path,
         cfg.save_config(export_json=model_path + f'/config_physical_seed{seed}.json')
 
 
+def parse_args():
+    p = argparse.ArgumentParser(description='DeepSAD-Physical (PCAD) for PIAD_Ext')
+    p.add_argument('--dataset', default='Pegasus', choices=list(DATASET_CONFIGS),
+                   help='Dataset name.')
+    p.add_argument('--ratio_pollution',     type=float, default=0.0,
+                   help='Pollution ratio of unlabeled train data.')
+    p.add_argument('--ratio_known_outlier', type=float, default=0.0,
+                   help='Ratio of labeled anomalous train samples.')
+    p.add_argument('--ratio_known_normal',  type=float, default=0.0,
+                   help='Ratio of labeled normal train samples.')
+    p.add_argument('--seed', type=int, default=-1, help='Random seed (-1 to disable).')
+    p.add_argument('--save', action='store_true', help='Save model/results/config.')
+    p.add_argument('--no_wandb', action='store_true',
+                   help='Disable wandb (run offline from the terminal, no login required).')
+    # Sweep agents inject extra CLI args (e.g. --coeff_sad, --ratios) that this
+    # parser doesn't define; wandb reads those into wandb.config, so ignore them.
+    args, _ = p.parse_known_args()
+    return args
+
+
 if __name__ == '__main__':
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
+    args = parse_args()
 
-    wandb.login()
+    if not args.no_wandb:
+        wandb.login()
     wandb.init(
         project='PIAD_Ext',
         name='PCAD',
+        mode='disabled' if args.no_wandb else 'online',
         config={
             'lr': 0.0001,
             'batch_size': 128,
@@ -241,9 +265,30 @@ if __name__ == '__main__':
         }
     )
 
-    dataset_name = wandb.config.dataset
-    ratio_pollution, ratio_known_outlier, ratio_known_normal = wandb.config.ratios
-    seed = wandb.config.seed
+    # Sweep agents populate wandb.config; terminal runs fall back to CLI args.
+    if hasattr(wandb.config, 'ratios'):
+        dataset_name = wandb.config.dataset
+        ratio_pollution, ratio_known_outlier, ratio_known_normal = wandb.config.ratios
+        seed = wandb.config.seed
+        save = args.save
+    else:
+        dataset_name = args.dataset
+        ratio_pollution = args.ratio_pollution
+        ratio_known_outlier = args.ratio_known_outlier
+        ratio_known_normal = args.ratio_known_normal
+        seed = args.seed
+        save = args.save
+
+    # Sweep agents may override the loss-component weights; otherwise fall back
+    # to the dataset defaults.
+    coeff_override = None
+    if hasattr(wandb.config, 'coeff_sad'):
+        coeff_override = {
+            'sad':     float(wandb.config.coeff_sad),
+            'pred':    float(wandb.config.coeff_pred),
+            'dir':     float(wandb.config.coeff_dir),
+            'cluster': float(wandb.config.coeff_cluster),
+        }
 
     defaults = DATASET_CONFIGS[dataset_name]
     setting.init(defaults['setting_hypers'])
@@ -259,7 +304,8 @@ if __name__ == '__main__':
     os.makedirs(model_path, exist_ok=True)
 
     main(dataset_name, defaults['net_name'], xp_path, './data',
-         eta=defaults['eta'], tau=defaults['tau'], coeff=defaults['coeff'],
+         eta=defaults['eta'], tau=defaults['tau'],
+         coeff=coeff_override if coeff_override is not None else defaults['coeff'],
          ratio_known_normal=ratio_known_normal,
          ratio_known_outlier=ratio_known_outlier,
          ratio_pollution=ratio_pollution,
@@ -271,6 +317,6 @@ if __name__ == '__main__':
          lr_milestone=defaults['lr_milestone'],
          batch_size=defaults['batch_size'],
          weight_decay=defaults['weight_decay'],
-         aug_mode='gaussian', save=False, model_path=model_path)
+         aug_mode='gaussian', save=save, model_path=model_path)
 
 wandb.finish()

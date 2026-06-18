@@ -17,6 +17,17 @@ import math
 import matplotlib.pyplot as plt
 import pandas as pd
 
+# Larger fonts everywhere. Imported by plot_results_configs.py too, so this
+# applies to both scripts.
+plt.rcParams.update({
+    'font.size': 17,
+    'axes.titlesize': 19,
+    'axes.labelsize': 19,
+    'xtick.labelsize': 16,
+    'ytick.labelsize': 16,
+    'legend.fontsize': 16,
+})
+
 XLSX_PATH = r'C:\Users\63218\OneDrive - purdue.edu\Documents\purdue research\PIAD_Ext\results.xlsx'
 
 N_CONFIGS = 3
@@ -30,10 +41,11 @@ METRICS = [
     'P_aff (UAff)', 'R_aff (NAff)', 'F_aff',
 ]
 
-# Okabe-Ito colorblind-safe palette, cycled if there are more methods than hues.
+# Okabe-Ito colorblind-safe palette (+ a distinct brown), cycled if there are
+# more methods than hues.
 PALETTE = [
-    '#0072B2', '#E69F00', '#009E73', '#D55E00',
-    '#CC79A7', '#56B4E9', '#F0E442', '#999999', '#000000',
+    '#0072B2', '#E69F00', '#009E73', '#D55E00', '#CC79A7',
+    '#56B4E9', '#F0E442', '#999999', '#000000', '#8C564B',
 ]
 
 
@@ -123,7 +135,7 @@ def plot_metric(results, datasets, metric, methods, all_methods, cfg, config_lab
     color_map = {m: PALETTE[i % len(PALETTE)] for i, m in enumerate(all_methods)}
 
     n = len(datasets)
-    fig, axes = plt.subplots(1, n, figsize=(4 * n, 4))
+    fig, axes = plt.subplots(1, n, figsize=(4 * n, 2.8))
     if n == 1:
         axes = [axes]
     for ax, dataset in zip(axes, datasets):
@@ -133,7 +145,7 @@ def plot_metric(results, datasets, metric, methods, all_methods, cfg, config_lab
                color=[color_map[m] for m in methods],
                edgecolor='black', linewidth=0.6,
                capsize=3, error_kw={'ecolor': '0.25', 'elinewidth': 1.2})
-        ax.set_title(dataset, fontsize=13)
+        ax.set_title(dataset)
         ax.grid(axis='y', color='0.85', linewidth=0.8)
         ax.set_axisbelow(True)
         ax.spines[['top', 'right']].set_visible(False)
@@ -147,8 +159,8 @@ def plot_metric(results, datasets, metric, methods, all_methods, cfg, config_lab
     if save:
         os.makedirs(save_dir, exist_ok=True)
         safe_metric = re.sub(r'[^\w.-]+', '_', metric).strip('_')
-        out_path = os.path.join(save_dir, f'{safe_metric}_cfg{cfg}.png')
-        fig.savefig(out_path, dpi=300, bbox_inches='tight')
+        out_path = os.path.join(save_dir, f'{safe_metric}_cfg{cfg}.pdf')
+        fig.savefig(out_path, bbox_inches='tight')
         print(f'Saved figure to {out_path}')
     if show:
         plt.show()
