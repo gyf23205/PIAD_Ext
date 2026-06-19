@@ -15,7 +15,8 @@ from DeepSAD import DeepSAD
 from datasets.main import load_dataset
 
 
-_COEFF = {'sad': 1.0, 'pred': 4.8, 'dir': 5.0, 'cluster': 1.7}
+# _COEFF = {'sad': 1.0, 'pred': 4.8, 'dir': 5.0, 'cluster': 1.7}
+_COEFF = {'sad': 3.905196749068267, 'pred': 3.905196749068267, 'dir': 1.045661216613432, 'cluster': 0.5099059432516932}
 _PHY_HYPERS = dict(
     eta=6.9264986318494515, tau=0.5, coeff=_COEFF,
     lr=0.0001, n_epochs=700, lr_milestone=[200, 400, 600, 800],
