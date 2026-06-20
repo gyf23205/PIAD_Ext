@@ -15,8 +15,8 @@ from DeepSAD import DeepSAD
 from datasets.main import load_dataset
 
 
-# _COEFF = {'sad': 1.0, 'pred': 4.8, 'dir': 5.0, 'cluster': 1.7}
-_COEFF = {'sad': 3.905196749068267, 'pred': 3.905196749068267, 'dir': 1.045661216613432, 'cluster': 0.5099059432516932}
+_COEFF = {'sad': 1.0, 'pred': 4.8, 'dir': 5.0, 'cluster': 1.7}
+# _COEFF = {'sad': 3.905196749068267, 'pred': 3.905196749068267, 'dir': 1.045661216613432, 'cluster': 0.5099059432516932}
 _PHY_HYPERS = dict(
     eta=6.9264986318494515, tau=0.5, coeff=_COEFF,
     lr=0.0001, n_epochs=700, lr_milestone=[200, 400, 600, 800],
@@ -66,7 +66,7 @@ def main(dataset_name, net_name, xp_path, data_path,
          lr=0.0001, n_epochs=700, lr_milestone=None,
          batch_size=128, weight_decay=0.5e-6,
          pretrain=False, tau=0.5, aug_mode='gaussian', save=False,
-         coeff=None, model_path='.'):
+         coeff=None, model_path='.', eval_rule='threshold'):
 
     if known_outlier_classes is None:
         known_outlier_classes = []
@@ -153,7 +153,8 @@ def main(dataset_name, net_name, xp_path, data_path,
                            tau=tau,
                            model_path=model_path,
                            save=save,
-                           aug_mode=aug_mode)
+                           aug_mode=aug_mode,
+                           eval_rule=eval_rule)
 
     deepSAD.test_physical(dataset, device=device, n_jobs_dataloader=n_jobs_dataloader)
 
@@ -238,6 +239,10 @@ def parse_args():
     p.add_argument('--ratio_known_normal',  type=float, default=0.0,
                    help='Ratio of labeled normal train samples.')
     p.add_argument('--seed', type=int, default=-1, help='Random seed (-1 to disable).')
+    p.add_argument('--eval_rule', default='threshold', choices=['threshold', 'probability'],
+                   help="Inference decision rule: 'threshold' (squared-Euclidean + per-class "
+                        "Youden thresholds, original) or 'probability' (cosine distance -> "
+                        "probability distribution + 0.5 threshold).")
     p.add_argument('--save', action='store_true', help='Save model/results/config.')
     p.add_argument('--no_wandb', action='store_true',
                    help='Disable wandb (run offline from the terminal, no login required).')
@@ -318,6 +323,7 @@ if __name__ == '__main__':
          lr_milestone=defaults['lr_milestone'],
          batch_size=defaults['batch_size'],
          weight_decay=defaults['weight_decay'],
-         aug_mode='gaussian', save=save, model_path=model_path)
+         aug_mode='gaussian', save=save, model_path=model_path,
+         eval_rule=args.eval_rule)
 
 wandb.finish()

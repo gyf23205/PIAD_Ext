@@ -179,7 +179,8 @@ class DeepSAD(object):
     def train_physical(self, dataset: BaseADDataset, n_outlier_classes: int, known_outlier_classes, coeff: dict, optimizer_name: str = 'adam', lr: float = 0.001, n_epochs: int = 100,
                 lr_milestones: tuple = (), batch_size: int = 128, weight_decay: float = 1e-6, device: str = 'cuda',
                 n_jobs_dataloader: int = 0, tau=0.1, model_path=None, save=False,
-                aug_mode: str = 'gaussian', nngmix_cfg: dict | None = None):
+                aug_mode: str = 'gaussian', nngmix_cfg: dict | None = None,
+                eval_rule: str = 'threshold'):
         """Train with system dynamics"""
 
         # Set autoencoder network
@@ -194,7 +195,7 @@ class DeepSAD(object):
                                     coeff, optimizer_name, lr=lr, n_epochs=n_epochs, lr_milestones=lr_milestones,
                                     batch_size=batch_size, weight_decay=weight_decay, device=device,
                                     n_jobs_dataloader=n_jobs_dataloader, tau=tau,
-                                    aug_mode=aug_mode, nngmix_cfg=nngmix_cfg)
+                                    aug_mode=aug_mode, nngmix_cfg=nngmix_cfg, eval_rule=eval_rule)
         self.net, best_auc = self.trainer.train(dataset, self.net, model_path, save)
 
         # Get train results

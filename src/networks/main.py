@@ -104,7 +104,8 @@ def build_network(net_name, ae_net=None):
         net = MLP(x_dim=1200, h_dims=[setting.hd1, setting.hd2], rep_dim=setting.rep, bias=False)
 
     if net_name == 'mlp_alfa':
-        net = MLP(x_dim=25*35, h_dims=[setting.hd1, setting.hd2], rep_dim=setting.rep, bias=False)
+        # 25 = window length, 47 = feature channels (must match read_ALFA_single_failure.py output)
+        net = MLP(x_dim=40*47, h_dims=[setting.hd1, setting.hd2], rep_dim=setting.rep, bias=False)
 
     if net_name == 'mlp_pegasus':
         net = MLP(x_dim=20*44, h_dims=[setting.hd1, setting.hd2], rep_dim=setting.rep, bias=False)
@@ -194,11 +195,11 @@ def build_network_cats(net_name):
                          output_size=setting.rep, proj_size=setting.rep // 2,
                          encoder_type='mlp')
     if net_name == 'cats_ts2vec_alfa':
-        return CATSModel(input_size=35, win_size=25,
+        return CATSModel(input_size=47, win_size=40,
                          output_size=setting.rep, proj_size=setting.rep // 2,
                          encoder_type='ts2vec')
     if net_name == 'cats_mlp_alfa':
-        return CATSModel(input_size=35, win_size=25,
+        return CATSModel(input_size=47, win_size=40,
                          output_size=setting.rep, proj_size=setting.rep // 2,
                          encoder_type='mlp')
 
@@ -220,7 +221,8 @@ def build_network_physical(net_name):
         net_physical = MLP_State_Only(x_dim=1200, h_dims=[setting.hd1, setting.hd2], rep_dim=setting.rep, bias=False)
 
     elif net_name == 'mlp_alfa':
-        net_physical = MLP_Physical(x_dim=25*35, h_dims=[setting.hd1, setting.hd2], out_dim=35, rep_dim=setting.rep, bias=False)
+        # 25 = window length, 47 = feature channels (must match read_ALFA_single_failure.py output)
+        net_physical = MLP_Physical(x_dim=40*47, h_dims=[setting.hd1, setting.hd2], out_dim=47, rep_dim=setting.rep, bias=False)
 
     elif net_name == "mlp_pegasus":
         net_physical = MLP_Physical(x_dim=20*44, h_dims=[setting.hd1, setting.hd2], rep_dim=setting.rep, out_dim=44, bias=False)

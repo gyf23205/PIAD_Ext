@@ -11,8 +11,11 @@ import logging
 import time
 import torch
 import torch.optim as optim
+import torch.nn.functional as F
 import numpy as np
 import copy
+
+from utils.metrics import centroid_distances, centroid_probabilities
 
 
 def compute_grad_norm(model):
@@ -73,6 +76,21 @@ def l_contrastive(A, same_mask):
     return loss_i[valid].mean()
 
 
+# === BEGIN unsupervised contrastive (removable) ===
+def nt_xent(z1, z2, tau):
+    """SimCLR NT-Xent loss over B paired views.
+    z1, z2: (B, d) projected embeddings of two augmented views of the same
+    samples. (z1[i], z2[i]) are positives; all other pairs are negatives."""
+    B = z1.size(0)
+    z = F.normalize(torch.cat([z1, z2], dim=0), dim=1)      # (2B, d)
+    sim = torch.mm(z, z.t()) / tau                          # (2B, 2B)
+    eye = torch.eye(2 * B, dtype=torch.bool, device=z.device)
+    sim.masked_fill_(eye, float('-inf'))
+    targets = torch.cat([torch.arange(B, 2 * B), torch.arange(0, B)]).to(z.device)
+    return F.cross_entropy(sim, targets)
+# === END unsupervised contrastive ===
+
+
 def get_all_centroids(A: torch.Tensor, y: torch.Tensor):
     labels = torch.unique(y)
     centroids = {}
@@ -93,9 +111,15 @@ class DeepSADTrainerPhysical(BaseTrainer):
                  coeff: dict, optimizer_name: str = 'adam', lr: float = 0.001, n_epochs: int = 150,
                  lr_milestones: tuple = (), batch_size: int = 128, weight_decay: float = 1e-6,
                  device: str = 'cuda', n_jobs_dataloader: int = 0, tau=0.1,
-                 aug_mode: str = 'gaussian', nngmix_cfg: dict | None = None):
+                 aug_mode: str = 'gaussian', nngmix_cfg: dict | None = None,
+                 eval_rule: str = 'threshold'):
         super().__init__(optimizer_name, lr, n_epochs, lr_milestones, batch_size, weight_decay, device,
                          n_jobs_dataloader)
+
+        # Inference decision rule for val()/test():
+        #   'threshold'   -> squared-Euclidean dist + per-class Youden thresholds (original)
+        #   'probability' -> cosine dist -> probability distribution + 0.5 threshold
+        self.eval_rule = eval_rule
 
         self.n_known_outlier_classes = n_known_outlier_classes
         self.known_outlier_classes   = list(known_outlier_classes)
@@ -175,10 +199,15 @@ class DeepSADTrainerPhysical(BaseTrainer):
         is_labeled_anomaly = is_labeled & (semi_targets > 0).any(dim=1)
         return is_labeled_normal, is_labeled_anomaly, is_labeled
 
+    def _stack_centroids(self):
+        """Centroids stacked in fixed order [c_normal, c_outlier_1, ...] -> (K+1, rep)."""
+        keys = ['c_normal'] + [f'c_outlier_{i+1}' for i in range(self.n_known_outlier_classes)]
+        return torch.stack([self.centroids[k].to(self.device).float() for k in keys])
+
     # ------------------------------------------------------------------
     # Combined loss
     # ------------------------------------------------------------------
-    def loss_all(self, outputs, semi_targets, signal_pred, signal_next):
+    def loss_all(self, outputs, semi_targets, signal_pred, signal_next, proj=None, z1=None, z2=None):
         loss = 0.0
         is_labeled_normal, is_labeled_anomaly, is_labeled = self._labeled_masks(semi_targets)
 
@@ -216,8 +245,17 @@ class DeepSADTrainerPhysical(BaseTrainer):
             shared_class  = torch.mm(y, y.T) > 0                                     # (k, k)
             same_mask     = both_normal | shared_class
 
-            A = pairwise_apply(outputs[is_labeled], cos_sim)
+            # Use projected embeddings (project_head) for the contrastive loss,
+            # consistent with the unsupervised term; fall back to raw outputs
+            # when no projection is supplied (e.g. val()/test()).
+            emb = proj if proj is not None else outputs
+            A = pairwise_apply(emb[is_labeled], cos_sim)
             loss_dir = l_contrastive(A / self.tau, same_mask)
+
+        # === BEGIN unsupervised contrastive (removable) ===
+        # if z1 is not None and z2 is not None:
+        #     loss_dir = loss_dir + nt_xent(z1, z2, self.tau)
+        # === END unsupervised contrastive ===
 
         # -------- Clustering loss --------
         # Labeled normals → pull toward c_normal
@@ -302,11 +340,21 @@ class DeepSADTrainerPhysical(BaseTrainer):
                 semi_targets = semi_targets.to(self.device)
                 signal_next  = signal_next.to(self.device)
 
+                # === BEGIN unsupervised contrastive (removable) ===
+                # Two fresh noisy views of the full (labeled + unlabeled) batch,
+                # encoded + projected via the SimCLR projection head.
+                # v1 = inputs + torch.randn_like(inputs) * 0.05
+                # v2 = inputs + torch.randn_like(inputs) * 0.05
+                # z1 = net.project(net.encoder(v1))
+                # z2 = net.project(net.encoder(v2))
+                # === END unsupervised contrastive ===
+
                 inputs, semi_targets, signal_next = self.data_augmentation(inputs, semi_targets, signal_next)
 
                 outputs, signal_pred = net(inputs)
+                proj = net.project(outputs)
                 loss, loss_sad, loss_pred, loss_dir, loss_cluster = self.loss_all(
-                    outputs, semi_targets, signal_pred, signal_next)
+                    outputs, semi_targets, signal_pred, signal_next, proj=proj)
 
                 optimizer.zero_grad()
                 loss.backward()
@@ -415,32 +463,43 @@ class DeepSADTrainerPhysical(BaseTrainer):
         scores_arr  = np.array(scores_list)
         outputs_arr = np.array(outputs_list)
 
-        self.test_auc = roc_auc_score(labels_bin, scores_arr)
-
-        # Best threshold from validation ROC curve
-        fpr, tpr, thresholds = self.roc_curve
-        youden_index  = tpr - fpr
-        best_threshold = thresholds[np.argmax(youden_index)]
-
-        samples_anomaly = scores_arr > best_threshold
-
-        # ------------------------------------------------------------------
-        # Multi-hot prediction via per-class distance thresholds
-        # ------------------------------------------------------------------
         y_pred_mh = np.zeros((len(labels_arr), self.n_known_outlier_classes), dtype=int)
 
-        if self.n_known_outlier_classes > 0 and self.per_class_thresholds is not None:
-            centroid_stack = torch.stack([
-                self.centroids[f'c_outlier_{i+1}']
-                for i in range(self.n_known_outlier_classes)
-            ]).to(self.device)
-            outputs_tensor = torch.tensor(outputs_arr, device=self.device)
-            dist_class     = torch.sum(
-                (outputs_tensor.unsqueeze(1) - centroid_stack.unsqueeze(0)) ** 2, dim=2
-            ).cpu().numpy()                                       # (n, n_known_ac)
+        if self.eval_rule == 'probability':
+            # ----- Cosine distance → probability distribution → 0.5 threshold -----
+            outputs_tensor = torch.tensor(outputs_arr, device=self.device).float()
+            C     = self._stack_centroids()                              # (K+1, rep)
+            dist  = centroid_distances(outputs_tensor, C, metric='cosine')
+            probs = centroid_probabilities(dist).cpu().numpy()           # (n, K+1)
+            scores_arr      = 1.0 - probs[:, 0]                          # anomaly score = 1 - P(normal)
+            samples_anomaly = probs[:, 0] < 0.5                          # binary: normal not the majority
             for i in range(self.n_known_outlier_classes):
-                class_scores     = -dist_class[:, i]             # closer → higher score
-                y_pred_mh[:, i]  = (class_scores > self.per_class_thresholds[i]).astype(int)
+                y_pred_mh[:, i] = (probs[:, i + 1] > 0.3).astype(int)    # class assignment threshold
+            self.test_auc = roc_auc_score(labels_bin, scores_arr)
+        else:
+            # ----- Original: squared-Euclidean dist + per-class Youden thresholds -----
+            self.test_auc = roc_auc_score(labels_bin, scores_arr)
+
+            # Best threshold from validation ROC curve
+            fpr, tpr, thresholds = self.roc_curve
+            youden_index  = tpr - fpr
+            best_threshold = thresholds[np.argmax(youden_index)]
+
+            samples_anomaly = scores_arr > best_threshold
+
+            # Multi-hot prediction via per-class distance thresholds
+            if self.n_known_outlier_classes > 0 and self.per_class_thresholds is not None:
+                centroid_stack = torch.stack([
+                    self.centroids[f'c_outlier_{i+1}']
+                    for i in range(self.n_known_outlier_classes)
+                ]).to(self.device)
+                outputs_tensor = torch.tensor(outputs_arr, device=self.device)
+                dist_class     = torch.sum(
+                    (outputs_tensor.unsqueeze(1) - centroid_stack.unsqueeze(0)) ** 2, dim=2
+                ).cpu().numpy()                                       # (n, n_known_ac)
+                for i in range(self.n_known_outlier_classes):
+                    class_scores     = -dist_class[:, i]             # closer → higher score
+                    y_pred_mh[:, i]  = (class_scores > self.per_class_thresholds[i]).astype(int)
 
         # Gate: samples predicted normal get all-zero multi-hot
         y_pred_mh[~samples_anomaly] = 0
@@ -536,6 +595,21 @@ class DeepSADTrainerPhysical(BaseTrainer):
         labels_bin  = (labels_arr.sum(axis=1) > 0).astype(int)
         scores_arr  = np.array(scores_list)
         outputs_arr = np.array(outputs_list)                      # (n, rep_dim)
+
+        if self.eval_rule == 'probability':
+            # Anomaly score = 1 - P(normal) from cosine-distance probabilities.
+            # No per-class thresholds needed (fixed 0.5 rule used at test time).
+            outputs_t = torch.tensor(outputs_arr, device=self.device).float()
+            C     = self._stack_centroids()
+            probs = centroid_probabilities(
+                centroid_distances(outputs_t, C, metric='cosine')).cpu().numpy()
+            scores_arr = 1.0 - probs[:, 0]
+            val_auc              = roc_auc_score(labels_bin, scores_arr)
+            fpr, tpr, thresholds = roc_curve(labels_bin, scores_arr, pos_label=1)
+            logger.info('Val Loss: {:.6f}'.format(epoch_loss / n_batches))
+            logger.info('Val AUC: {:.2f}%'.format(100. * val_auc))
+            logger.info('Finished validation.')
+            return val_auc, (fpr, tpr, thresholds), []
 
         val_auc          = roc_auc_score(labels_bin, scores_arr)
         fpr, tpr, thresholds = roc_curve(labels_bin, scores_arr, pos_label=1)

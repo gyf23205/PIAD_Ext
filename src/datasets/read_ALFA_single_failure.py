@@ -28,24 +28,33 @@ if __name__ == "__main__":
     flight_topic_dict = {}
     topic_list = []
     df_dict = {}
-    window_size = 25  # 5 seconds window at 5Hz frequency
-    slide_size = 5   # Slide by 1 time step
+    window_size = 40  # 5 seconds window at 5Hz frequency
+    slide_size = 2   # Slide by 1 time step
 
     # unused_flight_list = ["aileron", "aileron_failure", "elevator", 
     #                     "no_ground_truth", "rudder"]
     
     unused_flight_list = []
 
+    # NOTE: mavros-rc-out (servo PWM outputs) is kept — it is the most direct
+    # per-control-surface actuator signal and is essential for telling aileron /
+    # elevator / rudder failures apart (multi-hot fault-type classification).
+    # mavros-rc-in, mavctrl-rpy and setpoint_raw-local are still excluded:
+    # rc-in is mostly constant pilot channels, and mavctrl-rpy / setpoint_raw-local
+    # are present in only 40/46 flights so including them would misalign features.
     unused_topic_list = ["diagnostics", "emergency_responder-traj_file", "global_position",
                         "local_position", "mavctrl-path_dev",
                         "mavctrl-rpy", "mavlink",
                         "mavros-battery", "mavros-imu-data_raw",
                         "mavros-imu-mag", "mavros-mission-reached",
-                        "mavros-rc", "mavros-state",
+                        "mavros-rc-in", "mavros-state",
                         "mavros-time_reference", "setpoint_raw"] # Using failure_status topic
 
-    unused_columns = ["field.header.seq", "field.header.stamp", "field.header.frame_id", 
-                    "field.commanded", "field.variance", "field.twist.angular.x",
+    # NOTE: field.commanded is kept (was previously dropped). For nav_info-roll /
+    # -pitch / -yaw / -airspeed the commanded-vs-measured residual is the defining
+    # signature of a control-surface fault, so it must reach the model.
+    unused_columns = ["field.header.seq", "field.header.stamp", "field.header.frame_id",
+                    "field.variance", "field.twist.angular.x",
                     "field.twist.angular.y", "field.twist.angular.z",
                     "field.coordinate_frame"]
 
@@ -198,6 +207,6 @@ if __name__ == "__main__":
     print(f"Num of normal samples: {np.sum(y_all==0)}, Num of anomaly samples: {np.sum(y_all!=0)}")
 
     # Save the final numpy arrays
-    # np.save("data/ALFA/X_all.npy", X_all)
-    # np.save("data/ALFA/y_all.npy", y_all)
-    # np.save("data/ALFA/next_all.npy", next_all)
+    np.save("data/ALFA/X_all.npy", X_all)
+    np.save("data/ALFA/y_all.npy", y_all)
+    np.save("data/ALFA/next_all.npy", next_all)

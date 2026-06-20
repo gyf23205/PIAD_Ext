@@ -1,7 +1,7 @@
 program: src/main_all.py
 method: grid
 project: PIAD_Ext
-name: PCAD_sweep_new_coeff
+name: PCAD_sweep_new_ALFA
 parameters:
   dataset:
     values:

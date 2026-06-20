@@ -1,7 +1,37 @@
 """Shared metrics and label-conversion utilities for all PIAD_Ext baselines."""
 
 import numpy as np
+import torch
+import torch.nn.functional as F
 from sklearn.metrics import roc_auc_score
+
+
+def centroid_distances(emb: torch.Tensor, C: torch.Tensor, metric: str = 'cosine') -> torch.Tensor:
+    """Distance from each embedding to each centroid.
+
+    Args:
+        emb: (n, rep) sample embeddings.
+        C:   (K, rep) stacked centroids, fixed order [c_normal, c_outlier_1, ...].
+        metric: 'cosine' -> 1 - cosine_similarity (range [0, 2]); matches the
+                training `dir` loss geometry. 'euclidean' -> squared L2 distance.
+
+    Returns: (n, K) distance matrix.
+    """
+    if metric == 'cosine':
+        return 1.0 - F.cosine_similarity(emb.unsqueeze(1), C.unsqueeze(0), dim=2)
+    elif metric == 'euclidean':
+        return ((emb.unsqueeze(1) - C.unsqueeze(0)) ** 2).sum(dim=2)
+    raise ValueError(f"unknown metric '{metric}' (expected 'cosine' or 'euclidean')")
+
+
+def centroid_probabilities(dist: torch.Tensor, eps: float = 1e-8) -> torch.Tensor:
+    """Turn a (n, K) distance matrix into a per-sample probability distribution.
+
+    Inverse-distance normalisation: shorter distance -> larger probability,
+    each row sums to 1. p_i = (1/(d_i+eps)) / sum_j (1/(d_j+eps)).
+    """
+    inv = 1.0 / (dist + eps)
+    return inv / inv.sum(dim=1, keepdim=True)
 
 
 def multihot_to_single(semi_y: np.ndarray) -> np.ndarray:

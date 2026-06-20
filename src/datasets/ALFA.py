@@ -75,8 +75,11 @@ class ALFA(BaseADDataset):
             else:
                 flags_mh[flags == cls, col] = 1.0
 
+        # Anything non-normal is an outlier — including the multi-failure codes 8 and 9,
+        # whose bits are already set in flags_mh above. Using isin(outlier_classes) here
+        # would silently drop every code-8/9 window (neither normal nor outlier).
         idx_norm = (flags == 0)
-        idx_out = np.isin(flags, self.outlier_classes)
+        idx_out = (flags != 0)
 
         # Split normal samples
         (X_train_norm, X_test_norm,

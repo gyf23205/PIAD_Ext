@@ -1,14 +1,14 @@
 program: src/main_SAD.py
 method: grid
 project: PIAD_Ext
-name: DeepSAD_sweep
+name: DeepSAD_sweep_new_ALFA
 parameters:
   dataset:
     values:
-      - spoofing_multi_profile
+      # - spoofing_multi_profile
       - ALFA
-      - Pegasus
-      - spoofing_wind
+      # - Pegasus
+      # - spoofing_wind
   ratios:
     values:
       - [0.01, 0.0, 0.01]
