@@ -207,7 +207,7 @@ class DeepSADTrainerPhysical(BaseTrainer):
     # ------------------------------------------------------------------
     # Combined loss
     # ------------------------------------------------------------------
-    def loss_all(self, outputs, semi_targets, signal_pred, signal_next, proj=None, z1=None, z2=None):
+    def loss_all(self, outputs, semi_targets, signal_pred, signal_next):
         loss = 0.0
         is_labeled_normal, is_labeled_anomaly, is_labeled = self._labeled_masks(semi_targets)
 
@@ -248,8 +248,7 @@ class DeepSADTrainerPhysical(BaseTrainer):
             # Use projected embeddings (project_head) for the contrastive loss,
             # consistent with the unsupervised term; fall back to raw outputs
             # when no projection is supplied (e.g. val()/test()).
-            emb = proj if proj is not None else outputs
-            A = pairwise_apply(emb[is_labeled], cos_sim)
+            A = pairwise_apply(outputs[is_labeled], cos_sim)
             loss_dir = l_contrastive(A / self.tau, same_mask)
 
         # === BEGIN unsupervised contrastive (removable) ===
@@ -352,9 +351,9 @@ class DeepSADTrainerPhysical(BaseTrainer):
                 inputs, semi_targets, signal_next = self.data_augmentation(inputs, semi_targets, signal_next)
 
                 outputs, signal_pred = net(inputs)
-                proj = net.project(outputs)
+                # proj = net.project(outputs)
                 loss, loss_sad, loss_pred, loss_dir, loss_cluster = self.loss_all(
-                    outputs, semi_targets, signal_pred, signal_next, proj=proj)
+                    outputs, semi_targets, signal_pred, signal_next)
 
                 optimizer.zero_grad()
                 loss.backward()
