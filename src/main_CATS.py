@@ -69,8 +69,8 @@ DATASET_CONFIGS = {
     },
     'ALFA': {
         'net_name': 'cats_ts2vec_alfa',
-        'win_size': 25,
-        'n_features': 35,
+        'win_size': 40,
+        'n_features': 47,
         'normal_class': 0,
         'known_outlier_classes': [1, 2, 3, 4],
         'n_known_outlier_classes': 4,

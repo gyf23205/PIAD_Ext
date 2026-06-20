@@ -68,8 +68,8 @@ DATASET_CONFIGS = {
     },
     'ALFA': {
         'net_name': 'simad_alfa',
-        'win_size': 25,
-        'n_features': 35,
+        'win_size': 40,
+        'n_features': 47,
         'normal_class': 0,
         'known_outlier_classes': [1, 3, 4, 6],
         'n_known_outlier_classes': 4,
@@ -77,7 +77,7 @@ DATASET_CONFIGS = {
         'ratio_known_normal': 0.2,
         'ratio_pollution': 0.1,
         'simad_hypers': {
-            'patch_size': 5,       # 25 = 5 * 5
+            'patch_size': 5,       # 40 = 5 * 8
             'd_model': 128,
             'n_heads': 4,
             'n_layers': 3,

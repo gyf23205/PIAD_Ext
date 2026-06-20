@@ -104,7 +104,7 @@ def build_network(net_name, ae_net=None):
         net = MLP(x_dim=1200, h_dims=[setting.hd1, setting.hd2], rep_dim=setting.rep, bias=False)
 
     if net_name == 'mlp_alfa':
-        # 25 = window length, 47 = feature channels (must match read_ALFA_single_failure.py output)
+        # 40 = window length, 47 = feature channels (must match read_ALFA_single_failure.py output)
         net = MLP(x_dim=40*47, h_dims=[setting.hd1, setting.hd2], rep_dim=setting.rep, bias=False)
 
     if net_name == 'mlp_pegasus':
@@ -221,7 +221,7 @@ def build_network_physical(net_name):
         net_physical = MLP_State_Only(x_dim=1200, h_dims=[setting.hd1, setting.hd2], rep_dim=setting.rep, bias=False)
 
     elif net_name == 'mlp_alfa':
-        # 25 = window length, 47 = feature channels (must match read_ALFA_single_failure.py output)
+        # 40 = window length, 47 = feature channels (must match read_ALFA_single_failure.py output)
         net_physical = MLP_Physical(x_dim=40*47, h_dims=[setting.hd1, setting.hd2], out_dim=47, rep_dim=setting.rep, bias=False)
 
     elif net_name == "mlp_pegasus":

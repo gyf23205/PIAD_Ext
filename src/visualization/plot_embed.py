@@ -293,7 +293,7 @@ if __name__ == '__main__':
                                 4: 'Rudder Failure'}
 
     # Load trained model
-    model = MLP_Physical(x_dim=25*35, h_dims=[setting.hd1, setting.hd2], out_dim=35, rep_dim=setting.rep, bias=False)
+    model = MLP_Physical(x_dim=40*47, h_dims=[setting.hd1, setting.hd2], out_dim=47, rep_dim=setting.rep, bias=False)
     # results_dict = torch.load(f'{model_path}/model_physical.tar', map_location=device, weights_only=False)
 
     # Normal centroid

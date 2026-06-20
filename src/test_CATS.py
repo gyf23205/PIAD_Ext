@@ -50,8 +50,8 @@ DATASET_CONFIGS = {
         'setting_hypers': [256, 512, 64, 2.0],
     },
     'ALFA': {
-        'win_size': 25,
-        'n_features': 35,
+        'win_size': 40,
+        'n_features': 47,
         'normal_class': 0,
         'known_outlier_classes': [1, 2, 3, 4],
         'n_known_outlier_classes': 4,

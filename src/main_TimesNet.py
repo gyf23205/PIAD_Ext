@@ -53,9 +53,9 @@ DATASET_CONFIGS = {
         'ratio_known_normal': 0.0,
         'ratio_known_outlier': 0.0,
         'ratio_pollution': 0.1,
-        'enc_in': 35,
-        'c_out': 35,
-        'seq_len': 25,
+        'enc_in': 47,
+        'c_out': 47,
+        'seq_len': 40,
     },
     'spoofing_multi_profile': {
         'known_outlier_classes': [1],
