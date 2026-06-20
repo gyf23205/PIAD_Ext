@@ -93,26 +93,27 @@ def plot_metrics_all_configs(results, datasets, metrics, methods, config_labels,
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument('--metrics', nargs='+', required=True,
-                        help=f'Metric(s) to plot, one row per metric. Choose from: {METRICS}')
-    parser.add_argument('--methods', nargs='+', default=None,
-                        help='Methods to include (default: all methods found in the file)')
+    # parser.add_argument('--metrics', nargs='+', required=True,
+    #                     help=f'Metric(s) to plot, one row per metric. Choose from: {METRICS}')
+    parser.add_argument("--setting", required=True, choices=["detection", "classification"], help="Choose set of metrics")
+    # parser.add_argument('--methods', nargs='+', default=None,
+    #                     help='Methods to include (default: all methods found in the file)')
     parser.add_argument('--xlsx', default=XLSX_PATH, help='Path to results.xlsx')
-    parser.add_argument('--save-dir', default='./figures', help='Directory to save the figure')
+    parser.add_argument('--save-dir', default='./imgs', help='Directory to save the figure')
     parser.add_argument('--no-show', action='store_true', help='Only save the figure, do not open a window')
     parser.add_argument('--no-save', action='store_true', help='Only show the figure, do not save it to disk')
     args = parser.parse_args()
 
-    unknown_metrics = [m for m in args.metrics if m not in METRICS]
-    if unknown_metrics:
-        parser.error(f'Unknown metric(s) {unknown_metrics}. Valid metrics: {METRICS}')
+    if args.setting == "detection":
+        metrics = ["test_auc", "bin_f1", "bin_acc", "bin_recall", "mcc", "P_aff (UAff)"]
+        methods = ["PCAD_full" "RoSAS" "SimAD" "CATS" "TimesNet"]
+    elif args.setting == "classification":
+        metrics = ["f1_macro", "f1_weighted", "mh_acc", "mh_recall"]
+        methods = ["PCAD_full", "DASO", "CCL", "SimPro", "CATS"]
+    else:
+        parser.error(f'Unknown metric(s) {args.metrics}. Valid metrics: detection, classification')
 
     results, datasets, all_methods, config_labels = load_results(args.xlsx)
 
-    methods = args.methods if args.methods else all_methods
-    unknown = [m for m in methods if m not in all_methods]
-    if unknown:
-        parser.error(f'Unknown method(s) {unknown}. Valid methods: {all_methods}')
-
-    plot_metrics_all_configs(results, datasets, args.metrics, methods, config_labels,
+    plot_metrics_all_configs(results, datasets, metrics, methods, config_labels,
                              args.save_dir, show=not args.no_show, save=not args.no_save)
