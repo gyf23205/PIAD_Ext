@@ -140,35 +140,30 @@ def plot_gaps(gaps, datasets, metrics, pcad_variants, config_labels, save_dir,
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument('--metrics', nargs='+', required=True,
-                        help=f'Metric(s) to plot, one row per metric. Choose from: {METRICS}')
-    parser.add_argument('--baselines', nargs='+', default=None,
-                        help='Baseline method name(s) to compare against (best of these is '
-                             'used per cell). Default: all non-PCAD methods.')
+    parser.add_argument("--setting", required=True, choices=["detection", "classification"], help="Choose setting.")
     parser.add_argument('--xlsx', default=XLSX_PATH, help='Path to results.xlsx')
     parser.add_argument('--save-dir', default='./figures', help='Directory to save the figure')
     parser.add_argument('--no-show', action='store_true', help='Only save the figure, do not open a window')
     parser.add_argument('--no-save', action='store_true', help='Only show the figure, do not save it to disk')
     args = parser.parse_args()
 
-    unknown_metrics = [m for m in args.metrics if m not in METRICS]
-    if unknown_metrics:
-        parser.error(f'Unknown metric(s) {unknown_metrics}. Valid metrics: {METRICS}')
+    if args.setting == "detection":
+        pcad_variants = ["PCAD_full"]
+        metrics = ["test_auc", "bin_f1", "bin_acc", "bin_recall", "mcc", "P_aff (UAff)"]
+        baselines = ["PCAD_full", "RoSAS", "SimAD", "CATS", "TimesNet"]
+    elif args.setting == "classification":
+        pcad_variants = ["PCAD_full"]
+        metrics = ["f1_macro", "f1_weighted", "mh_acc", "mh_recall"]
+        baselines = ["PCAD_full", "DASO", "CCL", "SimPro", "CATS"]
+    else:
+        parser.error(f'Unknown metric(s) {args.metrics}. Valid metrics: detection, classification')
 
     results, datasets, all_methods, config_labels = load_results(args.xlsx)
 
-    pcad_variants, all_baselines = split_methods(all_methods)
-    if args.baselines is None:
-        baselines = all_baselines
-    else:
-        unknown = [m for m in args.baselines if m not in all_baselines]
-        if unknown:
-            parser.error(f'Unknown baseline(s) {unknown}. Valid baselines: {all_baselines}')
-        baselines = [m for m in all_baselines if m in args.baselines]
     print(f'PCAD variants: {pcad_variants}')
     print(f'Baselines:     {baselines}')
 
-    gaps = compute_gaps(results, datasets, args.metrics, pcad_variants, baselines,
+    gaps = compute_gaps(results, datasets, metrics, pcad_variants, baselines,
                         config_labels)
-    plot_gaps(gaps, datasets, args.metrics, pcad_variants, config_labels,
+    plot_gaps(gaps, datasets, metrics, pcad_variants, config_labels,
               args.save_dir, show=not args.no_show, save=not args.no_save)

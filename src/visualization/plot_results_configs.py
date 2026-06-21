@@ -20,6 +20,7 @@ import re
 
 import matplotlib.pyplot as plt
 import numpy as np
+from matplotlib.ticker import FormatStrFormatter
 
 from plot_results import METRICS, N_CONFIGS, XLSX_PATH, load_results
 
@@ -48,6 +49,17 @@ def plot_metrics_all_configs(results, datasets, metrics, methods, config_labels,
     x = np.arange(len(methods))
     offsets = np.linspace(-0.25, 0.25, N_CONFIGS)
     for r, metric in enumerate(metrics):
+        # Shared y-range across all datasets (columns) in this row, computed
+        # from the data including the +/- std error bars.
+        row_lo, row_hi = float('inf'), float('-inf')
+        for dataset in datasets:
+            for cfg in range(N_CONFIGS):
+                for m in methods:
+                    mean, std = results[dataset][cfg][m][metric]
+                    row_lo = min(row_lo, mean - std)
+                    row_hi = max(row_hi, mean + std)
+        pad = 0.05 * (row_hi - row_lo) if row_hi > row_lo else 0.1
+        row_ylim = (row_lo - pad, row_hi + pad)
         for c, dataset in enumerate(datasets):
             ax = axes[r][c]
             for cfg in range(N_CONFIGS):
@@ -73,6 +85,8 @@ def plot_metrics_all_configs(results, datasets, metrics, methods, config_labels,
                 ax.set_title(dataset)
             if c == 0:
                 ax.set_ylabel(metric)
+            ax.set_ylim(row_ylim)
+            ax.yaxis.set_major_formatter(FormatStrFormatter('%.1f'))
             ax.grid(axis='y', color='0.85', linewidth=0.8)
             ax.set_axisbelow(True)
             ax.spines[['top', 'right']].set_visible(False)
@@ -95,7 +109,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     # parser.add_argument('--metrics', nargs='+', required=True,
     #                     help=f'Metric(s) to plot, one row per metric. Choose from: {METRICS}')
-    parser.add_argument("--setting", required=True, choices=["detection", "classification"], help="Choose set of metrics")
+    parser.add_argument("--setting", required=True, choices=["detection", "classification"], help="Choose setting.")
     # parser.add_argument('--methods', nargs='+', default=None,
     #                     help='Methods to include (default: all methods found in the file)')
     parser.add_argument('--xlsx', default=XLSX_PATH, help='Path to results.xlsx')
@@ -106,10 +120,10 @@ if __name__ == '__main__':
 
     if args.setting == "detection":
         metrics = ["test_auc", "bin_f1", "bin_acc", "bin_recall", "mcc", "P_aff (UAff)"]
-        methods = ["PCAD_full" "RoSAS" "SimAD" "CATS" "TimesNet"]
+        methods = ["PCAD_full", "PCAD_nngmix", "PCAD_partialSAD", "RoSAS", "SimAD", "CATS", "TimesNet"]
     elif args.setting == "classification":
         metrics = ["f1_macro", "f1_weighted", "mh_acc", "mh_recall"]
-        methods = ["PCAD_full", "DASO", "CCL", "SimPro", "CATS"]
+        methods = ["PCAD_full", "PCAD_nngmix", "PCAD_partialSAD", "DASO", "CCL", "SimPro", "CATS"]
     else:
         parser.error(f'Unknown metric(s) {args.metrics}. Valid metrics: detection, classification')
 

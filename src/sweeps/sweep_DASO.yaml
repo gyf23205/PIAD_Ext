@@ -1,18 +1,18 @@
 program: src/main_DASO.py
 method: grid
 project: PIAD_Ext
-name: DASO_sweep_new_ALFA
+name: DASO_sweep_new_setting
 parameters:
   dataset:
     values:
-      # - spoofing_multi_profile
+      - spoofing_multi_profile
       - ALFA
-      # - Pegasus
-      # - spoofing_wind
+      - Pegasus
+      - spoofing_wind
   ratios:
     values:
-      - [0.01, 0.0, 0.01]
-      - [0.05, 0.05, 0.05]
-      - [0.05,  0.1, 0.1]
+      - [0.01, 0.01, 0.01]
+      # - [0.05, 0.05, 0.05]
+      # - [0.05,  0.1, 0.1]
   seed:
     values: [42, 43, 44]

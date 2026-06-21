@@ -4,7 +4,7 @@ import wandb
 api = wandb.Api()
 
 # --- Configuration ---
-SWEEP_IDS = ["s9sqjly0", "ou5g0huu", "s3aa3kdc", "24lcn4uc", "hc1fl49x", "6qd5q32y", "e6efu49g", "yvem8vh7"]   # add your sweep IDs here
+SWEEP_IDS = ["d9eck94d", "ksn0dcf4"]   # add your sweep IDs here
 # SWEEP_IDS = ["grilepd2"]
 COLUMNS = ["dataset", "seed", "ratios", "bin_acc", "bin_f1", "bin_recall", "f1_macro", "f1_weighted", "test_auc", "mh_acc", "mh_recall", "f_aff", "p_aff", "r_aff", "mcc"]
 # ---------------------
