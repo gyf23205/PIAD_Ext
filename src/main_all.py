@@ -300,13 +300,6 @@ if __name__ == '__main__':
             'dir':     float(c_dir),
             'cluster': float(c_cluster),
         }
-    elif hasattr(wandb.config, 'coeff_sad'):
-        coeff_override = {
-            'sad':     float(wandb.config.coeff_sad),
-            'pred':    float(wandb.config.coeff_pred),
-            'dir':     float(wandb.config.coeff_dir),
-            'cluster': float(wandb.config.coeff_cluster),
-        }
 
     defaults = DATASET_CONFIGS[dataset_name]
     setting.init(defaults['setting_hypers'])
