@@ -1,0 +1,27 @@
+program: src/main_all.py
+method: grid
+project: PIAD_Ext
+name: PCAD_ablation
+# Ablation study: 4 models, each with one loss-weight coefficient set to 0.
+# Default coeffs are [sad, pred, dir, cluster] = [1.0, 4.8, 5.0, 1.7].
+# Grid: 4 datasets x 4 ratio settings x 4 ablations x 3 seeds = 192 runs.
+parameters:
+  dataset:
+    values:
+      - spoofing_multi_profile
+      - ALFA
+      - Pegasus
+      - spoofing_wind
+  ratios:
+    values:
+      - [0.01, 0, 0.01]
+      - [0.01, 0.01, 0.01]
+      - [0.05, 0.05, 0.05]
+      - [0.05, 0.1, 0.1]
+  coeff:
+    # [sad, pred, dir, cluster]
+    values:
+      - [0, 4.8, 5.0, 1.7]    # ablate sad
+      - [1.0, 0, 5.0, 1.7]    # ablate pred
+      - [1.0, 4.8, 0, 1.7]    # ablate dir
+      - [1.0, 4.8, 5.0, 0]    # ablate cluster

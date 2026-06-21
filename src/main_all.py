@@ -29,13 +29,14 @@ DATASET_CONFIGS = {
         **_PHY_HYPERS,
         'net_name': 'mlp_pegasus',
         'normal_class': 0,
-        'known_outlier_classes': [1, 3, 4, 7],
-        'n_known_outlier_classes': 4,
+        'known_outlier_classes': [1, 3, 4],
+        'n_known_outlier_classes': 3,
     },
     'ALFA': {
         **_PHY_HYPERS,
         'net_name': 'mlp_alfa',
         'normal_class': 0,
+        # 'known_outlier_classes': [1, 2, 3, 4, 5, 6],
         'known_outlier_classes': [1, 3, 4, 6],
         'n_known_outlier_classes': 4,
     },
@@ -61,7 +62,7 @@ def main(dataset_name, net_name, xp_path, data_path,
          num_threads=0, n_jobs_dataloader=0, optimizer_name='adam',
          eta=6.9264986318494515,
          ratio_known_normal=0.0, ratio_known_outlier=0.0, ratio_pollution=0.0,
-         device='cpu', seed=-1,
+         device='cpu', seed=42,
          normal_class=0, known_outlier_classes=None, n_known_outlier_classes=1,
          lr=0.0001, n_epochs=700, lr_milestone=None,
          batch_size=128, weight_decay=0.5e-6,
@@ -232,7 +233,7 @@ def parse_args():
     p = argparse.ArgumentParser(description='DeepSAD-Physical (PCAD) for PIAD_Ext')
     p.add_argument('--dataset', default='Pegasus', choices=list(DATASET_CONFIGS),
                    help='Dataset name.')
-    p.add_argument('--ratio_pollution',     type=float, default=0.0,
+    p.add_argument('--ratio_pollution', type=float, default=0.0,
                    help='Pollution ratio of unlabeled train data.')
     p.add_argument('--ratio_known_outlier', type=float, default=0.0,
                    help='Ratio of labeled anomalous train samples.')
@@ -288,7 +289,18 @@ if __name__ == '__main__':
     # Sweep agents may override the loss-component weights; otherwise fall back
     # to the dataset defaults.
     coeff_override = None
-    if hasattr(wandb.config, 'coeff_sad'):
+    if hasattr(wandb.config, 'coeff'):
+        # Ablation sweeps bundle the four loss weights into a single list
+        # parameter [sad, pred, dir, cluster] so a grid sweep yields exactly
+        # one run per combo (instead of the cartesian product of four params).
+        c_sad, c_pred, c_dir, c_cluster = wandb.config.coeff
+        coeff_override = {
+            'sad':     float(c_sad),
+            'pred':    float(c_pred),
+            'dir':     float(c_dir),
+            'cluster': float(c_cluster),
+        }
+    elif hasattr(wandb.config, 'coeff_sad'):
         coeff_override = {
             'sad':     float(wandb.config.coeff_sad),
             'pred':    float(wandb.config.coeff_pred),
@@ -323,7 +335,7 @@ if __name__ == '__main__':
          lr_milestone=defaults['lr_milestone'],
          batch_size=defaults['batch_size'],
          weight_decay=defaults['weight_decay'],
-         aug_mode='gaussian', save=save, model_path=model_path,
+         aug_mode='nngmix', save=save, model_path=model_path,
          eval_rule=args.eval_rule)
 
 wandb.finish()

@@ -257,29 +257,28 @@ def plot_heatmap(rows, cent_labels, dataset, eval_rule, metric, thr, out_path):
     im = ax.imshow(M, cmap=cmap, aspect='auto', vmin=0.0, vmax=1.0)
 
     ax.set_xticks(range(n_cols))
-    ax.set_xticklabels(cent_labels, rotation=30, ha='right', fontsize=8)
+    ax.set_xticklabels(cent_labels, rotation=30, ha='right', fontsize=20)
     ax.set_yticks(range(n_rows))
-    ax.set_yticklabels(row_labels, fontsize=8)
-    ax.set_xlabel('stored centroid')
-    ax.set_ylabel('selected class group')
-    ax.set_title(title)
+    ax.set_yticklabels(row_labels, fontsize=20)
+    ax.set_xlabel('stored centroid', size=20)
+    # ax.set_ylabel('selected class group', size=20)
+    # ax.set_title(title, size=20)
 
-    # Annotate probabilities; outline cells with p > 0.5 (the prediction).
+    # Annotate probabilities.
     for i in range(n_rows):
         if np.all(np.isnan(M[i])):
             ax.text(n_cols / 2 - 0.5, i, 'no samples', ha='center', va='center',
-                    fontsize=8, color='dimgrey')
+                    fontsize=20, color='dimgrey')
             continue
         for j in range(n_cols):
             txt_col = 'white' if M[i, j] < 0.55 else 'black'
             ax.text(j, i, f'{M[i, j]:.2f}', ha='center', va='center',
-                    fontsize=7, color=txt_col)
-            if M[i, j] > thr:
-                ax.add_patch(plt.Rectangle((j - 0.5, i - 0.5), 1, 1, fill=False,
-                                           edgecolor='red', linewidth=2.5))
+                    fontsize=20, color=txt_col)
 
-    cbar = fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
-    cbar.set_label(cbar_label)
+    cbar = fig.colorbar(im, ax=ax, fraction=0.08, pad=0.04, aspect=12,
+                        ticks=np.linspace(0.0, 1.0, 6))
+    cbar.set_label(cbar_label, size=20)
+    cbar.ax.tick_params(labelsize=18)
     fig.tight_layout()
     fig.savefig(out_path, bbox_inches='tight')
     plt.close(fig)

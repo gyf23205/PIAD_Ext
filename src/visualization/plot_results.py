@@ -30,10 +30,19 @@ plt.rcParams.update({
 
 XLSX_PATH = r'C:\Users\63218\OneDrive - purdue.edu\Documents\purdue research\PIAD_Ext\results.xlsx'
 
-N_CONFIGS = 3
-BLOCK_COL_STRIDE = 8   # config blocks start at columns 0, 8, 16
+N_CONFIGS = 3          # number of label-ratio scenarios shown per figure
+BLOCK_COL_STRIDE = 8   # config blocks start at columns 0, 8, 16, 24, ...
 MEAN_COL_OFFSET = 4    # relative to block start
 STD_COL_OFFSET = 5
+
+# Which spreadsheet column block backs each plotted scenario, per setting.
+# Detection uses the first three blocks (the first is rp:0.01 rko:0.00 rkn:0.01).
+# Classification swaps that first scenario for the extra rp:0.01 rko:0.01
+# rkn:0.01 block appended after the detection blocks (block index 3).
+CONFIG_BLOCKS = {
+    'detection': [0, 1, 2],
+    'classification': [3, 1, 2],
+}
 
 METRICS = [
     'test_auc', 'f1_macro', 'f1_weighted', 'mh_acc', 'mh_recall',
@@ -65,9 +74,14 @@ def load_results(xlsx_path):
     """
     df = pd.read_excel(xlsx_path, sheet_name=0, header=None)
 
+    # Number of column blocks present in the sheet (each block is one scenario).
+    # Detection sheets have 3; classification adds an extra rp:0.01 rko:0.01
+    # rkn:0.01 block, giving 4. Detect it from the sheet width so both work.
+    n_blocks = max(1, (df.shape[1] - STD_COL_OFFSET - 1) // BLOCK_COL_STRIDE + 1)
+
     results = {}
     datasets, methods = [], []
-    config_labels = [None] * N_CONFIGS
+    config_labels = [None] * n_blocks
 
     row = 0
     while row < df.shape[0]:
@@ -79,8 +93,8 @@ def load_results(xlsx_path):
 
         dataset = str(name)
         datasets.append(dataset)
-        results[dataset] = {cfg: {} for cfg in range(N_CONFIGS)}
-        for cfg in range(N_CONFIGS):
+        results[dataset] = {cfg: {} for cfg in range(n_blocks)}
+        for cfg in range(n_blocks):
             base = cfg * BLOCK_COL_STRIDE
             parts = [str(_cell(df, row, base + c)) for c in (1, 2, 3) if _cell(df, row, base + c) is not None]
             config_labels[cfg] = ' '.join(parts)
@@ -96,7 +110,7 @@ def load_results(xlsx_path):
             if label in METRICS:
                 if method is None:
                     raise ValueError(f'Metric row "{label}" before any method name (row {row + 1})')
-                for cfg in range(N_CONFIGS):
+                for cfg in range(n_blocks):
                     base = cfg * BLOCK_COL_STRIDE
                     mean = _cell(df, row, base + MEAN_COL_OFFSET)
                     std = _cell(df, row, base + STD_COL_OFFSET)
@@ -106,8 +120,7 @@ def load_results(xlsx_path):
                     )
             else:
                 method = label
-                results[dataset][0].setdefault(method, {})
-                for cfg in range(N_CONFIGS):
+                for cfg in range(n_blocks):
                     results[dataset][cfg].setdefault(method, {})
                 if method not in methods:
                     methods.append(method)
@@ -168,11 +181,13 @@ def plot_metric(results, datasets, metric, methods, all_methods, cfg, config_lab
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("--setting", default="detection", choices=["detection", "classification"],
+                        help="Choose setting (selects which label-ratio scenarios are used).")
     parser.add_argument('--metric', required=True, help=f'Metric to plot, one of: {METRICS}')
     parser.add_argument('--methods', nargs='+', default=None,
                         help='Methods to include (default: all methods found in the file)')
     parser.add_argument('--config', type=int, default=0, choices=range(N_CONFIGS),
-                        help='Label-ratio config block to plot (default: 0)')
+                        help='Label-ratio scenario to plot (0=first scenario for the setting)')
     parser.add_argument('--xlsx', default=XLSX_PATH, help='Path to results.xlsx')
     parser.add_argument('--save-dir', default='./figures', help='Directory to save the figure')
     parser.add_argument('--no-show', action='store_true', help='Only save the figure, do not open a window')
@@ -184,11 +199,19 @@ if __name__ == '__main__':
 
     results, datasets, all_methods, config_labels = load_results(args.xlsx)
 
+    block = CONFIG_BLOCKS[args.setting][args.config]
+    if block >= len(config_labels) or config_labels[block] is None:
+        parser.error(
+            f'Scenario {args.config} for setting "{args.setting}" needs column block '
+            f'{block}, but the spreadsheet only has {len(config_labels)} block(s). '
+            f'Did you add the rp:0.01 rko:0.01 rkn:0.01 columns?'
+        )
+
     methods = args.methods if args.methods else all_methods
     unknown = [m for m in methods if m not in all_methods]
     if unknown:
         parser.error(f'Unknown method(s) {unknown}. Valid methods: {all_methods}')
 
-    plot_metric(results, datasets, args.metric, methods, all_methods, args.config,
-                config_labels[args.config], args.save_dir, show=not args.no_show,
+    plot_metric(results, datasets, args.metric, methods, all_methods, block,
+                config_labels[block], args.save_dir, show=not args.no_show,
                 save=not args.no_save)

@@ -4,7 +4,7 @@ import wandb
 api = wandb.Api()
 
 # --- Configuration ---
-SWEEP_IDS = ["d9eck94d", "ksn0dcf4"]   # add your sweep IDs here
+SWEEP_IDS = ["h4j52579", "patd1jcd", "f1wyhh95", "zr5irg5s", "19zk3az7", "l16s9h4x", "elq9bel8"]   # add your sweep IDs here
 # SWEEP_IDS = ["grilepd2"]
 COLUMNS = ["dataset", "seed", "ratios", "bin_acc", "bin_f1", "bin_recall", "f1_macro", "f1_weighted", "test_auc", "mh_acc", "mh_recall", "f_aff", "p_aff", "r_aff", "mcc"]
 # ---------------------
@@ -30,4 +30,4 @@ for sweep_id in SWEEP_IDS:
         rows.append(row)
 
 df = pd.DataFrame(rows)
-df.to_csv("resweep_ALFA.csv", index=False)
+df.to_csv("perf-class-new-setting.csv", index=False)

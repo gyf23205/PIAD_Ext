@@ -242,9 +242,9 @@ if __name__ == '__main__':
     # Setup
     dataset_name = 'ALFA'
     data_path = './data'
-    ratio_known_outlier = 0.3 #0.3
-    ratio_known_normal = 0.2 # 0.2
-    ratio_pollution = 0.1 # 0.1
+    ratio_known_outlier = 0.15 #0.3
+    ratio_known_normal = 0.15 # 0.2
+    ratio_pollution = 0.01 # 0.1
     rko = str(ratio_known_outlier).replace('.','')
     rp = str(ratio_pollution).replace('.','')
     coeff = {

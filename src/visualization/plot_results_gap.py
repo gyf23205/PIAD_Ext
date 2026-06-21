@@ -26,7 +26,7 @@ import re
 import matplotlib.pyplot as plt
 import numpy as np
 
-from plot_results import METRICS, N_CONFIGS, XLSX_PATH, load_results
+from plot_results import CONFIG_BLOCKS, XLSX_PATH, load_results
 
 CONFIG_COLORS = ['#0072B2', '#E69F00', '#009E73', '#D55E00', '#CC79A7']
 
@@ -42,12 +42,13 @@ def split_methods(methods):
     return pcad, baselines
 
 
-def compute_gaps(results, datasets, metrics, pcad_variants, baselines, config_labels):
+def compute_gaps(results, datasets, metrics, pcad_variants, baselines, config_labels,
+                 config_blocks):
     """gaps[metric][dataset][cfg][variant] = percentage gap over best baseline."""
     needed = list(pcad_variants) + list(baselines)
     for metric in metrics:
         for dataset in datasets:
-            for cfg in range(N_CONFIGS):
+            for cfg in config_blocks:
                 for method in needed:
                     mean, std = results[dataset][cfg].get(method, {}).get(
                         metric, (float('nan'), float('nan')))
@@ -62,7 +63,7 @@ def compute_gaps(results, datasets, metrics, pcad_variants, baselines, config_la
         gaps[metric] = {}
         for dataset in datasets:
             gaps[metric][dataset] = {}
-            for cfg in range(N_CONFIGS):
+            for cfg in config_blocks:
                 best_method = max(baselines, key=lambda b: results[dataset][cfg][b][metric][0])
                 best = results[dataset][cfg][best_method][metric][0]
                 if best == 0:
@@ -79,22 +80,38 @@ def compute_gaps(results, datasets, metrics, pcad_variants, baselines, config_la
     return gaps
 
 
-def plot_gaps(gaps, datasets, metrics, pcad_variants, config_labels, save_dir,
-              show=True, save=True):
+def print_average_gaps(gaps, datasets, metrics, pcad_variants, config_blocks):
+    """For each metric, average the gap over all datasets/configs/variants."""
+    print('\nAverage gap over all datasets (%):')
+    avg_gaps = {}
+    for metric in metrics:
+        vals = [gaps[metric][d][cfg][v]
+                for d in datasets
+                for cfg in config_blocks
+                for v in pcad_variants]
+        avg = sum(vals) / len(vals)
+        avg_gaps[metric] = avg
+        print(f'  {metric}: {avg:+.2f}%')
+    return avg_gaps
+
+
+def plot_gaps(gaps, datasets, metrics, pcad_variants, config_labels, config_blocks,
+              save_dir, show=True, save=True):
+    n_cfg = len(config_blocks)
     n_rows = len(metrics)
     n_cols = len(datasets)
     fig, axes = plt.subplots(n_rows, n_cols, figsize=(4 * n_cols, 2.8 * n_rows),
                              squeeze=False)
     x = np.arange(len(pcad_variants))
-    bar_w = 0.8 / N_CONFIGS
-    offsets = (np.arange(N_CONFIGS) - (N_CONFIGS - 1) / 2) * bar_w
+    bar_w = 0.8 / n_cfg
+    offsets = (np.arange(n_cfg) - (n_cfg - 1) / 2) * bar_w
 
     # Shared y-range per row (per metric), with a small symmetric margin.
     row_ylim = {}
     for metric in metrics:
         vals = [gaps[metric][d][cfg][v]
                 for d in datasets
-                for cfg in range(N_CONFIGS) for v in pcad_variants]
+                for cfg in config_blocks for v in pcad_variants]
         lo, hi = min(vals + [0.0]), max(vals + [0.0])
         pad = 0.05 * (hi - lo) if hi > lo else 1.0
         row_ylim[metric] = (lo - pad, hi + pad)
@@ -102,10 +119,10 @@ def plot_gaps(gaps, datasets, metrics, pcad_variants, config_labels, save_dir,
     for r, metric in enumerate(metrics):
         for c, dataset in enumerate(datasets):
             ax = axes[r][c]
-            for cfg in range(N_CONFIGS):
+            for i, cfg in enumerate(config_blocks):
                 vals = [gaps[metric][dataset][cfg][v] for v in pcad_variants]
-                ax.bar(x + offsets[cfg], vals, width=bar_w,
-                       color=CONFIG_COLORS[cfg % len(CONFIG_COLORS)],
+                ax.bar(x + offsets[i], vals, width=bar_w,
+                       color=CONFIG_COLORS[i % len(CONFIG_COLORS)],
                        edgecolor='black', linewidth=0.5,
                        label=config_labels[cfg])
             ax.axhline(0, color='black', linewidth=1.0)
@@ -125,7 +142,7 @@ def plot_gaps(gaps, datasets, metrics, pcad_variants, config_labels, save_dir,
             ax.spines[['top', 'right']].set_visible(False)
     handles, labels = axes[0][0].get_legend_handles_labels()
     fig.legend(handles, labels, loc='upper center', bbox_to_anchor=(0.5, 1.02),
-               ncol=N_CONFIGS, frameon=False)
+               ncol=n_cfg, frameon=False)
     fig.tight_layout()
 
     if save:
@@ -150,20 +167,30 @@ if __name__ == '__main__':
     if args.setting == "detection":
         pcad_variants = ["PCAD_full"]
         metrics = ["test_auc", "bin_f1", "bin_acc", "bin_recall", "mcc", "P_aff (UAff)"]
-        baselines = ["PCAD_full", "RoSAS", "SimAD", "CATS", "TimesNet"]
+        baselines = ["RoSAS", "SimAD", "CATS", "TimesNet"]
     elif args.setting == "classification":
         pcad_variants = ["PCAD_full"]
         metrics = ["f1_macro", "f1_weighted", "mh_acc", "mh_recall"]
-        baselines = ["PCAD_full", "DASO", "CCL", "SimPro", "CATS"]
+        baselines = ["DASO", "CCL", "SimPro", "CATS"]
     else:
         parser.error(f'Unknown metric(s) {args.metrics}. Valid metrics: detection, classification')
 
     results, datasets, all_methods, config_labels = load_results(args.xlsx)
 
+    config_blocks = CONFIG_BLOCKS[args.setting]
+    missing = [b for b in config_blocks if b >= len(config_labels) or config_labels[b] is None]
+    if missing:
+        parser.error(
+            f'Setting "{args.setting}" needs column block(s) {missing}, but the '
+            f'spreadsheet only has {len(config_labels)} block(s). '
+            f'Did you add the rp:0.01 rko:0.01 rkn:0.01 columns?'
+        )
+
     print(f'PCAD variants: {pcad_variants}')
     print(f'Baselines:     {baselines}')
 
     gaps = compute_gaps(results, datasets, metrics, pcad_variants, baselines,
-                        config_labels)
-    plot_gaps(gaps, datasets, metrics, pcad_variants, config_labels,
+                        config_labels, config_blocks)
+    print_average_gaps(gaps, datasets, metrics, pcad_variants, config_blocks)
+    plot_gaps(gaps, datasets, metrics, pcad_variants, config_labels, config_blocks,
               args.save_dir, show=not args.no_show, save=not args.no_save)
