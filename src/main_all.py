@@ -276,7 +276,6 @@ if __name__ == '__main__':
     if hasattr(wandb.config, 'ratios'):
         dataset_name = wandb.config.dataset
         ratio_pollution, ratio_known_outlier, ratio_known_normal = wandb.config.ratios
-        seed = wandb.config.seed
         save = args.save
     else:
         dataset_name = args.dataset
@@ -328,7 +327,7 @@ if __name__ == '__main__':
          lr_milestone=defaults['lr_milestone'],
          batch_size=defaults['batch_size'],
          weight_decay=defaults['weight_decay'],
-         aug_mode='nngmix', save=save, model_path=model_path,
+         aug_mode='gaussian', save=save, model_path=model_path,
          eval_rule=args.eval_rule)
 
 wandb.finish()
