@@ -313,6 +313,8 @@ if __name__ == '__main__':
     os.makedirs(xp_path,    exist_ok=True)
     os.makedirs(model_path, exist_ok=True)
 
+    seed = 42
+
     main(dataset_name, defaults['net_name'], xp_path, './data',
          eta=defaults['eta'], tau=defaults['tau'],
          coeff=coeff_override if coeff_override is not None else defaults['coeff'],
